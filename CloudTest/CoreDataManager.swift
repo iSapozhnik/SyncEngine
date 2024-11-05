@@ -228,36 +228,41 @@ class CoreDataManager {
     }
     
     private func setupSync() {
-//        container.cloudKitContainer.accountStatus { [weak self] status, error in
-//            if status == .available {
-//                self?.initiateSync()
-//            } else if let error = error {
-//                self?.logger.error("CloudKit account error: \(error.localizedDescription)")
+//        Task {
+//            do {
+//                if try await CloudKitSyncEngine.shared.requestPermission() {
+//                    try await initiateSync()
+//                }
+//            } catch {
+//                logger.error("CloudKit setup failed: \(error.localizedDescription)")
 //            }
 //        }
+    }
+    
+    private func initiateSync() async throws {
+        try await CloudKitSyncEngine.shared.performSync()
+        logger.info("CloudKit sync completed successfully")
     }
     
     @objc private func storeRemoteChange(_ notification: Notification) {
-        logger.info("Received remote change notification")
-        container.viewContext.perform {
-            self.container.viewContext.refreshAllObjects()
+        Task {
+            do {
+                // Refresh objects and trigger a sync
+                await container.viewContext.perform {
+                    self.container.viewContext.refreshAllObjects()
+                }
+//                try await initiateSync()
+            } catch {
+                logger.error("Failed to process remote changes: \(error.localizedDescription)")
+            }
         }
     }
     
-    private func initiateSync() {
-//        Task {
-//            do {
-//                try await container.sync()
-//                logger.info("CloudKit sync completed successfully")
-//            } catch {
-//                logger.error("CloudKit sync failed: \(error.localizedDescription)")
-//            }
-//        }
-    }
-    
     @objc private func cloudKitAccountChanged(_ notification: Notification) {
-        container.viewContext.perform { [weak self] in
-            self?.setupSync()
+        Task {
+            await container.viewContext.perform { [weak self] in
+                self?.setupSync()
+            }
         }
     }
     
@@ -427,6 +432,36 @@ class CoreDataManager {
                     } else {
                         continuation.resume(throwing: CloudKitError.itemNotFound)
                     }
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    
+    func markAsRemoved(cloudKitRecordID: String) async throws {
+        return try await withCheckedThrowingContinuation { continuation in
+            let context = newBackgroundContext()
+            
+            context.performAndWait {
+                do {
+                    // Check both ClipboardItem and ClipboardItemContent
+                    let itemFetchRequest: NSFetchRequest<ClipboardItemMO> = ClipboardItemMO.fetchRequest()
+                    itemFetchRequest.predicate = NSPredicate(format: "cloudKitRecordID == %@", cloudKitRecordID)
+                    
+                    let contentFetchRequest: NSFetchRequest<ClipboardItemContentMO> = ClipboardItemContentMO.fetchRequest()
+                    contentFetchRequest.predicate = NSPredicate(format: "cloudKitRecordID == %@", cloudKitRecordID)
+                    
+                    if let item = try context.fetch(itemFetchRequest).first {
+                        item.isRemoved = true
+                    }
+                    
+                    if let content = try context.fetch(contentFetchRequest).first {
+                        content.isRemoved = true
+                    }
+                    
+                    try context.save()
+                    continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)
                 }

@@ -16,6 +16,7 @@ class ViewController: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
+        view.window?.title = "Loading..."
         loadExistingContent()
         startObservingClipboard()
     }
@@ -36,6 +37,7 @@ class ViewController: NSViewController {
                 }
                 
                 await MainActor.run {
+                    view.window?.title = "Did load \(items.count) items)"
                     textView.textStorage?.setAttributedString(attributedString)
                 }
             } catch {
