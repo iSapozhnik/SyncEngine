@@ -51,7 +51,7 @@ class CloudKitSyncEngine {
         try await container.accountStatus() == .available
     }
     
-    func save(_ clipboardItem: ClipboardItem) async throws {
+    func save(_ clipboardItem: ClipboardItemMO) async throws {
         // Save the main ClipboardItem record
         let itemRecord = try createClipboardItemRecord(from: clipboardItem)
         let savedItemRecord = try await database.save(itemRecord)
@@ -83,14 +83,14 @@ class CloudKitSyncEngine {
         try await uploadLocalChanges()
     }
     
-    func deleteItem(_ item: ClipboardItem) async throws {
+    func deleteItem(_ item: ClipboardItemMO) async throws {
         guard let recordID = item.cloudKitRecordID.map({ CKRecord.ID(recordName: $0) }) else { return }
         try await database.deleteRecord(withID: recordID)
     }
     
     // MARK: - Private
     
-    private func createClipboardItemRecord(from item: ClipboardItem) throws -> CKRecord {
+    private func createClipboardItemRecord(from item: ClipboardItemMO) throws -> CKRecord {
         guard let itemID = item.id else {
             throw CloudKitError.itemNotValid
         }
@@ -107,7 +107,7 @@ class CloudKitSyncEngine {
         return record
     }
     
-    private func createContentRecord(from content: ClipboardItemContent) throws -> CKRecord {
+    private func createContentRecord(from content: ClipboardItemContentMO) throws -> CKRecord {
         guard let contentID = content.id else {
             throw CloudKitError.itemNotValid
         }
@@ -139,19 +139,19 @@ class CloudKitSyncEngine {
         return record
     }
     
-    private func fetchContentRecords(for item: ClipboardItem) async throws -> [CKRecord] {
+    private func fetchContentRecords(for item: ClipboardItemMO) async throws -> [CKRecord] {
         guard let context = item.managedObjectContext else {
             throw CloudKitError.itemNotValid
         }
         
-        let fetchRequest: NSFetchRequest<ClipboardItemContent> = ClipboardItemContent.fetchRequest()
+        let fetchRequest: NSFetchRequest<ClipboardItemContentMO> = ClipboardItemContentMO.fetchRequest()
         fetchRequest.predicate = NSPredicate(format: "clipboardItemId == %@", item.id ?? "")
         
         let contents = try context.fetch(fetchRequest)
         return try contents.map { try createContentRecord(from: $0) }
     }
     
-    private func updateLocalRecords(clipboardItem: ClipboardItem, 
+    private func updateLocalRecords(clipboardItem: ClipboardItemMO, 
                                   itemRecord: CKRecord, 
                                   contentRecords: [CKRecord]) async throws {
         guard let context = clipboardItem.managedObjectContext else { return }
@@ -161,7 +161,7 @@ class CloudKitSyncEngine {
             clipboardItem.cloudKitRecordID = itemRecord.recordID.recordName
             
             // Update content items
-            let fetchRequest: NSFetchRequest<ClipboardItemContent> = ClipboardItemContent.fetchRequest()
+            let fetchRequest: NSFetchRequest<ClipboardItemContentMO> = ClipboardItemContentMO.fetchRequest()
             fetchRequest.predicate = NSPredicate(format: "clipboardItemId == %@", clipboardItem.id ?? "")
             let contents = try context.fetch(fetchRequest)
             

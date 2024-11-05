@@ -1,9 +1,9 @@
 import Cocoa
 
 actor ClipboardObserver {
-    private var continuation: AsyncStream<NSPasteboardItem>.Continuation?
+    private var continuation: AsyncStream<ClipboardData>.Continuation?
     
-    func startObserving() -> AsyncStream<NSPasteboardItem> {
+    func startObserving() -> AsyncStream<ClipboardData> {
         return AsyncStream { continuation in
             self.continuation = continuation
             
@@ -17,7 +17,8 @@ actor ClipboardObserver {
                         changeCount = newChangeCount
                         
                         for pasteboardItem in pasteboard.pasteboardItems ?? [] {
-                            continuation.yield(pasteboardItem)
+                            let clipboardData = ClipboardData(from: pasteboardItem)
+                            continuation.yield(clipboardData)
                         }
                     }
                     

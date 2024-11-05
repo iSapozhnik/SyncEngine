@@ -16,6 +16,7 @@ class ViewController: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
+        loadExistingContent()
         startObservingClipboard()
     }
     
@@ -24,17 +25,90 @@ class ViewController: NSViewController {
 
     }
     
-    private func startObservingClipboard() {
-        observationTask = Task {
-            let stream = await clipboardObserver.startObserving()
-            
-            for await pasteboardItem in stream {
-                handleClipboardContent(pasteboardItem)
+    private func loadExistingContent() {
+        Task {
+            do {
+                let items = try await fetchClipboardItems()
+                let attributedString = NSMutableAttributedString()
+                
+                for item in items {
+                    await appendClipboardItem(item, to: attributedString)
+                }
+                
+                DispatchQueue.main.async { [weak self] in
+                    self?.textView.textStorage?.setAttributedString(attributedString)
+                }
+            } catch {
+                print("Failed to load existing content:", error)
             }
         }
     }
     
-    private func handleClipboardContent(_ pasteboardItem: NSPasteboardItem) {
+    private func fetchClipboardItems() async throws -> [ClipboardItemMO] {
+        return try await CoreDataManager.shared.fetchClipboardItems()
+    }
+    
+    private func appendClipboardItem(_ item: ClipboardItemMO, to attributedString: NSMutableAttributedString) async {
+        // Add timestamp
+        if let timestamp = item.timestamp {
+            let timestampAttr = NSAttributedString(
+                string: "[\(DateFormatter.localizedString(from: timestamp, dateStyle: .short, timeStyle: .medium))]\n",
+                attributes: [
+                    .foregroundColor: NSColor.systemBlue,
+                    .font: NSFont.boldSystemFont(ofSize: 12)
+                ]
+            )
+            await MainActor.run {
+                attributedString.append(timestampAttr)
+            }
+        }
+        
+        // Fetch and process contents
+        if let contents = try? await CoreDataManager.shared.fetchContents(for: item.id ?? "") {
+            for content in contents {
+                guard let typeIdentifier = content.typeIdentifier,
+                      let data = content.data else { continue }
+                
+                let type = NSPasteboard.PasteboardType(rawValue: typeIdentifier)
+                
+                // Add type information
+                await MainActor.run {
+                    self.appendTypeInfo(type, to: attributedString)
+                    
+                    // Process and add content
+                    let (contentString, image) = self.processContent(type, data: data)
+                    self.appendContent(contentString, to: attributedString)
+                    
+                    // Add image preview if available
+                    if let image = image {
+                        self.appendImagePreview(image, to: attributedString)
+                    }
+                }
+            }
+        }
+        
+        // Add spacing
+        await MainActor.run {
+            attributedString.append(NSAttributedString(string: "\n\n"))
+        }
+    }
+    
+    private func startObservingClipboard() {
+        observationTask = Task {
+            let stream = await clipboardObserver.startObserving()
+            
+            for await clipboardData in stream {
+                handleClipboardContent(clipboardData)
+                do {
+                    try await CoreDataManager.shared.saveClipboardData(clipboardData)
+                } catch {
+                    print("Failed to save clipboard data:", error)
+                }
+            }
+        }
+    }
+    
+    private func handleClipboardContent(_ clipboardData: ClipboardData) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             
@@ -43,13 +117,13 @@ class ViewController: NSViewController {
             // Add timestamp
             self.appendTimestamp(to: attributedString)
             
-            // Process each type in the pasteboard item
-            pasteboardItem.types.forEach { type in
+            // Process each type
+            clipboardData.types.forEach { type in
                 // Add type information
                 self.appendTypeInfo(type, to: attributedString)
                 
                 // Process and add content
-                let (content, image) = self.processContent(for: type)
+                let (content, image) = self.processContent(type, data: clipboardData.contents[type])
                 self.appendContent(content, to: attributedString)
                 
                 // Add image preview if available
@@ -101,65 +175,55 @@ class ViewController: NSViewController {
         attributedString.append(typeValue)
     }
     
-    private func processContent(for type: NSPasteboard.PasteboardType) -> (String, NSImage?) {
-        let pasteboard = NSPasteboard.general
+    private func processContent(
+        _ type: NSPasteboard.PasteboardType,
+        data: Data?
+    ) -> (String, NSImage?) {
+        guard let data = data else {
+            return ("No data available", nil)
+        }
         
         switch type {
         case .string:
-            return (pasteboard.string(forType: .string) ?? "No string content", nil)
-        
+            if let string = String(data: data, encoding: .utf8) {
+                return (string, nil)
+            }
+            return ("Invalid string data", nil)
+            
         case .fileURL:
-            if let urlString = pasteboard.string(forType: .fileURL),
+            if let urlString = String(data: data, encoding: .utf8),
                let url = URL(string: urlString) {
                 let fileIcon = NSWorkspace.shared.icon(forFile: url.path)
                 return ("File: \(url.lastPathComponent)\nPath: \(url.path)", fileIcon)
             }
-            return ("No file URL content", nil)
-        
-        case .URL:
-            if let urlString = pasteboard.string(forType: .URL),
-               let url = URL(string: urlString) {
-                return ("URL: \(url.absoluteString)", nil)
+            return ("Invalid file URL", nil)
+            
+        case .tiff, .png:
+            if let image = NSImage(data: data) {
+                return ("Image - Size: \(image.size.width)x\(image.size.height)", image)
             }
-            return ("Invalid URL", nil)
-        
-        case .tiff:
-            if let imageData = pasteboard.data(forType: .tiff),
-               let image = NSImage(data: imageData) {
-                return ("Image (TIFF) - Size: \(image.size.width)x\(image.size.height)", image)
-            }
-            return ("Invalid TIFF image data", nil)
-        
-        case .png:
-            if let imageData = pasteboard.data(forType: .png),
-               let image = NSImage(data: imageData) {
-                return ("Image (PNG) - Size: \(image.size.width)x\(image.size.height)", image)
-            }
-            return ("Invalid PNG image data", nil)
-        
+            return ("Invalid image data", nil)
+            
         case .pdf:
-            if let pdfData = pasteboard.data(forType: .pdf),
-               let image = NSImage(data: pdfData) {
+            if let image = NSImage(data: data) {
                 return ("PDF content", image)
             }
             return ("PDF data (preview not available)", nil)
-        
+            
         case .rtf:
-            if let rtfData = pasteboard.data(forType: .rtf),
-               let rtfString = NSAttributedString(rtf: rtfData, documentAttributes: nil)?.string {
+            if let rtfString = NSAttributedString(rtf: data, documentAttributes: nil)?.string {
                 return ("RTF content: \(rtfString)", nil)
             }
             return ("Invalid RTF content", nil)
-        
+            
         case .html:
-            if let htmlString = pasteboard.string(forType: .html) {
+            if let htmlString = String(data: data, encoding: .utf8) {
                 return ("HTML content: \(htmlString)", nil)
             }
             return ("Invalid HTML content", nil)
-        
+            
         case .color:
-            if let colorData = pasteboard.data(forType: .color),
-               let color = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: colorData) {
+            if let color = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data) {
                 let colorPreview = NSImage(size: NSSize(width: 20, height: 20))
                 colorPreview.lockFocus()
                 color.drawSwatch(in: NSRect(x: 0, y: 0, width: 20, height: 20))
@@ -177,16 +241,15 @@ class ViewController: NSViewController {
                 return (colorInfo, colorPreview)
             }
             return ("Invalid color data", nil)
-        
+            
         case .multipleTextSelection:
-            if let strings = pasteboard.propertyList(forType: .multipleTextSelection) as? [String] {
+            if let strings = String(data: data, encoding: .utf8)?.components(separatedBy: "\n") {
                 return ("Multiple text selection:\n" + strings.joined(separator: "\n"), nil)
             }
             return ("Invalid multiple text selection", nil)
-        
+            
         case .ruler:
-            if let rulerData = pasteboard.data(forType: .ruler),
-               let paraStyle = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSParagraphStyle.self, from: rulerData) {
+            if let paraStyle = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSParagraphStyle.self, from: data) {
                 let attributes = [
                     "First line head indent: \(paraStyle.firstLineHeadIndent)",
                     "Head indent: \(paraStyle.headIndent)",
@@ -197,25 +260,15 @@ class ViewController: NSViewController {
                 return ("Ruler data:\n" + attributes.joined(separator: "\n"), nil)
             }
             return ("Invalid ruler data", nil)
-        
+            
         case .tabularText:
-            if let tabularText = pasteboard.string(forType: .tabularText) {
+            if let tabularText = String(data: data, encoding: .utf8) {
                 return ("Tabular text:\n\(tabularText)", nil)
             }
             return ("Invalid tabular text", nil)
-        
+            
         default:
-            // Try to get string representation for unknown types
-            if let string = pasteboard.string(forType: type) {
-                return ("[\(type.rawValue)]: \(string)", nil)
-            }
-            
-            // Try to get data representation
-            if let data = pasteboard.data(forType: type) {
-                return ("[\(type.rawValue)]: \(data.count) bytes of data", nil)
-            }
-            
-            return ("Unsupported content type: \(type.rawValue)", nil)
+            return ("[\(type.rawValue)]: \(data.count) bytes", nil)
         }
     }
     

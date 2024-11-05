@@ -13,6 +13,7 @@ enum ClipboardError: LocalizedError {
     case itemNotFound
     case invalidPasteboardContent
     case contextError
+    case invalidIdentifier
     
     var errorDescription: String? {
         switch self {
@@ -21,6 +22,7 @@ enum ClipboardError: LocalizedError {
         case .itemNotFound: return "Clipboard item not found"
         case .invalidPasteboardContent: return "Invalid pasteboard content"
         case .contextError: return "Core Data context error"
+        case .invalidIdentifier: return "Invalid identifier"
         }
     }
 }

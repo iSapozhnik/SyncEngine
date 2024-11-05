@@ -10,7 +10,7 @@ import Cocoa
 import CryptoKit
 
 class ClipboardIdentifier {
-    static func generateUniqueIdentifier(_ pasteboard: NSPasteboardItem) -> String? {
+    static func generateUniqueIdentifier(_ pasteboard: NSPasteboardItem) -> String {
         // Get all available types for this item
         let types = pasteboard.types
         
@@ -53,18 +53,14 @@ class ClipboardIdentifier {
         }
         
         // Generate SHA256 hash of the combined content
-        if !contentToHash.isEmpty {
-            let inputData = Data(contentToHash.utf8)
-            let hashed = SHA256.hash(data: inputData)
-            return hashed.compactMap { String(format: "%02x", $0) }.joined()
-        }
-        
-        return nil
+        let inputData = Data(contentToHash.utf8)
+        let hashed = SHA256.hash(data: inputData)
+        return hashed.compactMap { String(format: "%02x", $0) }.joined()
     }
     
     // Helper method to check if content already exists
     static func isContentDuplicate(forPasteboardItem pasteboard: NSPasteboardItem, existingHashes: Set<String>) -> Bool {
-        guard let newHash = generateUniqueIdentifier(pasteboard) else { return false }
+        let newHash = generateUniqueIdentifier(pasteboard)
         return existingHashes.contains(newHash)
     }
 }
