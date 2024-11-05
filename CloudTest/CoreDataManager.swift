@@ -62,12 +62,22 @@ class CoreDataManager {
         )
     }
     
-    func saveClipboardData(_ clipboardData: ClipboardData) async throws {
+    func saveClipboardData(_ clipboardData: ClipboardData) async throws -> Bool {
         return try await withCheckedThrowingContinuation { continuation in
             let context = newBackgroundContext()
             
             context.performAndWait {
                 do {
+                    let fetchRequest: NSFetchRequest<ClipboardItemMO> = ClipboardItemMO.fetchRequest()
+                    fetchRequest.predicate = NSPredicate(format: "id == %@", clipboardData.identifier)
+
+                    let existingItemsCount = try context.count(for: fetchRequest)
+                    if existingItemsCount > 0 {
+                        // Item already exists, skip saving
+                        continuation.resume(returning: false)
+                        return
+                    }
+                    
                     // Create new clipboard item
                     let clipboardItem = ClipboardItemMO(context: context)
                     clipboardItem.id = clipboardData.identifier
@@ -90,7 +100,7 @@ class CoreDataManager {
                     }
                     
                     try context.save()
-                    continuation.resume()
+                    continuation.resume(returning: true)
                     
                 } catch {
                     continuation.resume(throwing: ClipboardError.saveFailed(error))

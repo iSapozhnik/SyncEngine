@@ -8,7 +8,7 @@
          BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
          <BreakpointContent
             uuid = "D31458B2-07DB-4F7E-B1EC-6C31470BDABA"
-            shouldBeEnabled = "Yes"
+            shouldBeEnabled = "No"
             ignoreCount = "0"
             continueAfterRunningActions = "No"
             filePath = "CloudTest/ViewController.swift"
@@ -80,7 +80,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "366"
             endingLineNumber = "366"
-            landmarkName = "fetchClipboardItems()"
+            landmarkName = "processFetchedCloudKitRecords(_:)"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
@@ -98,6 +98,82 @@
             endingLineNumber = "348"
             landmarkName = "processFetchedCloudKitRecords(_:)"
             landmarkType = "7">
+            <Locations>
+               <Location
+                  uuid = "9AEED9EB-0E75-477B-87DB-BD36C549ECA6 - f36461f9ba3ccd2e"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #1 () -&gt; () in closure #1 (Swift.CheckedContinuation&lt;(), Swift.Error&gt;) -&gt; () in CloudTest.CoreDataManager.processFetchedCloudKitRecords(Swift.Array&lt;__C.CKRecord&gt;) async throws -&gt; ()"
+                  moduleName = "CloudTest.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/ivansapozhnik/Developer/CloudTest/CloudTest/CoreDataManager.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "349"
+                  endingLineNumber = "349">
+               </Location>
+               <Location
+                  uuid = "9AEED9EB-0E75-477B-87DB-BD36C549ECA6 - f36461f9ba3ccd2e"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #1 () -&gt; () in closure #1 (Swift.CheckedContinuation&lt;(), Swift.Error&gt;) -&gt; () in CloudTest.CoreDataManager.processFetchedCloudKitRecords(Swift.Array&lt;__C.CKRecord&gt;) async throws -&gt; ()"
+                  moduleName = "CloudTest.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/ivansapozhnik/Developer/CloudTest/CloudTest/CoreDataManager.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "349"
+                  endingLineNumber = "349">
+               </Location>
+            </Locations>
+         </BreakpointContent>
+      </BreakpointProxy>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            uuid = "5DDE8DFC-84F9-42BA-976B-4418FC239A62"
+            shouldBeEnabled = "No"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "CloudTest/CoreDataManager.swift"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "71"
+            endingLineNumber = "71"
+            landmarkName = "saveClipboardData(_:)"
+            landmarkType = "7">
+            <Locations>
+               <Location
+                  uuid = "5DDE8DFC-84F9-42BA-976B-4418FC239A62 - 452f64400d86e444"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #1 () -&gt; () in closure #1 (Swift.CheckedContinuation&lt;(), Swift.Error&gt;) -&gt; () in CloudTest.CoreDataManager.saveClipboardData(CloudTest.ClipboardData) async throws -&gt; ()"
+                  moduleName = "CloudTest.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/ivansapozhnik/Developer/CloudTest/CloudTest/CoreDataManager.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "71"
+                  endingLineNumber = "71">
+               </Location>
+               <Location
+                  uuid = "5DDE8DFC-84F9-42BA-976B-4418FC239A62 - 35ef67e83f1af98b"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #1 () -&gt; () in closure #1 (Swift.CheckedContinuation&lt;Swift.Bool, Swift.Error&gt;) -&gt; () in CloudTest.CoreDataManager.saveClipboardData(CloudTest.ClipboardData) async throws -&gt; Swift.Bool"
+                  moduleName = "CloudTest.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/ivansapozhnik/Developer/CloudTest/CloudTest/CoreDataManager.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "71"
+                  endingLineNumber = "71">
+               </Location>
+            </Locations>
          </BreakpointContent>
       </BreakpointProxy>
    </Breakpoints>
