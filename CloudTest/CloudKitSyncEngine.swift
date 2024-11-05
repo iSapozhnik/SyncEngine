@@ -24,7 +24,7 @@ enum CloudKitError: LocalizedError {
 
 class CloudKitSyncEngine {
     static let shared = CloudKitSyncEngine()
-    
+    private let zone = CKRecordZone(zoneName: "CustomZone")
     private let container: CKContainer
     private let database: CKDatabase
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "CloudKitSyncEngine", category: "CloudKit")
@@ -45,8 +45,48 @@ class CloudKitSyncEngine {
     }
     
     private init() {
-        container = CKContainer.default()
+        container = CKContainer(identifier: "iCloud.com.isapozhnik.CloudTest")
         database = container.privateCloudDatabase
+        container.accountStatus { [weak self] status, error in
+            guard let self else { return }
+            
+            if let error = error {
+                logger.error("CloudKit account status error: \(error.localizedDescription)")
+                return
+            }
+            
+            switch status {
+            case .available:
+                logger.info("CloudKit is available")
+                createCustomZoneIfNeeded()
+            case .noAccount:
+                logger.error("No iCloud account")
+            case .restricted:
+                logger.error("iCloud is restricted")
+            case .couldNotDetermine:
+                logger.error("Could not determine iCloud status")
+            case .temporarilyUnavailable:
+                logger.error("ClouKit is temporary unavailable")
+            @unknown default:
+                logger.error("Unknown iCloud status")
+            }
+        }
+    }
+    
+    private func createCustomZoneIfNeeded() {
+        // Avoid the operation if this has already been done.
+        guard !UserDefaults.standard.bool(forKey: "isZoneCreated") else {
+            return
+        }
+        Task {
+            do {
+                _ = try await database.modifyRecordZones(saving: [zone], deleting: [])
+            } catch {
+                print("ERROR: Failed to create custom zone: \(error.localizedDescription)")
+            }
+        }
+        
+        UserDefaults.standard.setValue(true, forKey: "isZoneCreated")
     }
     
     func requestPermission() async throws -> Bool {
@@ -80,6 +120,7 @@ class CloudKitSyncEngine {
                                        itemRecord: savedItemRecord, 
                                        contentRecords: savedContentRecords)
         } catch let error as CKError {
+            logger.error("Error saving record: \(error.localizedDescription)")
             switch error.code {
             case .serverRecordChanged:
                 if let serverRecord = error.serverRecord {
@@ -115,7 +156,7 @@ class CloudKitSyncEngine {
         
         record["id"] = item.id
         record["timestamp"] = item.timestamp
-        record["modificationDate"] = item.modificationDate
+//        record["modificationDate"] = item.modificationDate
         record["isRemoved"] = item.isRemoved
         
         return record
@@ -133,7 +174,7 @@ class CloudKitSyncEngine {
         record["id"] = content.id
         record["clipboardItemId"] = content.clipboardItemId
         record["timestamp"] = content.timestamp
-        record["modificationDate"] = content.modificationDate
+//        record["modificationDate"] = content.modificationDate
         record["isRemoved"] = content.isRemoved
         record["typeIdentifier"] = content.typeIdentifier
         
@@ -180,7 +221,7 @@ class CloudKitSyncEngine {
     }
     
     private func fetchNextBatch(since token: CKServerChangeToken?) async throws -> (CKServerChangeToken?, [CKRecord], Bool) {
-        let zoneID = CKRecordZone.default().zoneID
+        let zoneID = CKRecordZone(zoneName: "CustomZone").zoneID
         
         let allChanges = try await database.recordZoneChanges(inZoneWith: zoneID, since: token)
         let changes = allChanges.modificationResultsByID.compactMapValues { try? $0.get().record }

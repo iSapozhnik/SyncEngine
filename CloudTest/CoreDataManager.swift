@@ -238,15 +238,15 @@ class CoreDataManager {
     }
     
     private func setupSync() {
-//        Task {
-//            do {
-//                if try await CloudKitSyncEngine.shared.requestPermission() {
-//                    try await initiateSync()
-//                }
-//            } catch {
-//                logger.error("CloudKit setup failed: \(error.localizedDescription)")
-//            }
-//        }
+        Task {
+            do {
+                if try await CloudKitSyncEngine.shared.requestPermission() {
+                    try await initiateSync()
+                }
+            } catch {
+                logger.error("CloudKit setup failed: \(error.localizedDescription)")
+            }
+        }
     }
     
     private func initiateSync() async throws {
@@ -261,7 +261,7 @@ class CoreDataManager {
                 await container.viewContext.perform {
                     self.container.viewContext.refreshAllObjects()
                 }
-//                try await initiateSync()
+                try await initiateSync()
             } catch {
                 logger.error("Failed to process remote changes: \(error.localizedDescription)")
             }
