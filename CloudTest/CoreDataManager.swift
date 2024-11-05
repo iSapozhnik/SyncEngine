@@ -62,66 +62,37 @@ class CoreDataManager {
         )
     }
     
-    func saveClipboardContent() async throws {
-        guard NSPasteboard.general.pasteboardItems?.isEmpty != true else {
-            throw ClipboardError.invalidPasteboardContent
-        }
-        
+    func saveClipboardData(_ clipboardData: ClipboardData) async throws {
         return try await withCheckedThrowingContinuation { continuation in
             let context = newBackgroundContext()
             
             context.performAndWait {
                 do {
-                    guard let pasteboardItems = NSPasteboard.general.pasteboardItems else {
-                        continuation.resume(throwing: ClipboardError.invalidPasteboardContent)
-                        return
-                    }
+                    // Create new clipboard item
+                    let clipboardItem = ClipboardItemMO(context: context)
+                    clipboardItem.id = clipboardData.identifier
+                    clipboardItem.timestamp = clipboardData.timestamp
+                    clipboardItem.modificationDate = Date()
+                    clipboardItem.isRemoved = false
                     
-                    // Create a task group to handle CloudKit saves
-                    let taskGroup = Task {
-                        for pasteboard in pasteboardItems {
-                            guard let identifier = ClipboardIdentifier.generateUniqueIdentifier(pasteboard) else {
-                                continue
-                            }
-                            
-                            // Create new clipboard item
-                            let clipboardItem = ClipboardItem(context: context)
-                            clipboardItem.id = identifier
-                            clipboardItem.timestamp = Date()
-                            clipboardItem.modificationDate = Date()
-                            clipboardItem.isRemoved = false
-                            
-                            // Store data for each type as separate ClipboardItemContent
-                            for type in pasteboard.types {
-                                if let data = pasteboard.data(forType: type) {
-                                    let content = ClipboardItemContent(context: context)
-                                    content.clipboardItemId = identifier
-                                    content.id = UUID().uuidString
-                                    content.typeIdentifier = type.rawValue
-                                    content.data = data
-                                    content.timestamp = Date()
-                                    content.modificationDate = Date()
-                                    content.isRemoved = false
-                                }
-                            }
-                            
-                            // Save to CloudKit
-                            do {
-                                try await CloudKitSyncEngine.shared.save(clipboardItem)
-                                self.logger.info("Saved clipboard item to CloudKit: \(identifier)")
-                            } catch {
-                                self.logger.error("Failed to save to CloudKit: \(error.localizedDescription)")
-                            }
+                    // Store data for each type
+                    for type in clipboardData.types {
+                        if let data = clipboardData.contents[type] {
+                            let content = ClipboardItemContentMO(context: context)
+                            content.clipboardItemId = clipboardData.identifier
+                            content.id = UUID().uuidString
+                            content.typeIdentifier = type.rawValue
+                            content.data = data
+                            content.timestamp = clipboardData.timestamp
+                            content.modificationDate = Date()
+                            content.isRemoved = false
                         }
                     }
                     
-                    // Save to Core Data
                     try context.save()
-                    
                     continuation.resume()
                     
                 } catch {
-                    self.logger.error("Failed to save clipboard item: \(error.localizedDescription)")
                     continuation.resume(throwing: ClipboardError.saveFailed(error))
                 }
             }
@@ -290,13 +261,13 @@ class CoreDataManager {
         }
     }
     
-    func fetchLocalItemsPendingCloudKitSync() async throws -> [ClipboardItem] {
+    func fetchLocalItemsPendingCloudKitSync() async throws -> [ClipboardItemMO] {
         return try await withCheckedThrowingContinuation { continuation in
             let context = newBackgroundContext()
             
             context.performAndWait {
                 do {
-                    let fetchRequest: NSFetchRequest<ClipboardItem> = ClipboardItem.fetchRequest()
+                    let fetchRequest: NSFetchRequest<ClipboardItemMO> = ClipboardItemMO.fetchRequest()
                     fetchRequest.predicate = NSPredicate(format: "cloudKitRecordID == NULL")
                     
                     let items = try context.fetch(fetchRequest)
@@ -317,11 +288,11 @@ class CoreDataManager {
                     for record in records {
                         switch record.recordType {
                         case "ClipboardItem":
-                            let fetchRequest: NSFetchRequest<ClipboardItem> = ClipboardItem.fetchRequest()
+                            let fetchRequest: NSFetchRequest<ClipboardItemMO> = ClipboardItemMO.fetchRequest()
                             fetchRequest.predicate = NSPredicate(format: "id == %@ OR cloudKitRecordID == %@",
                                                              record.recordID.recordName, record.recordID.recordName)
                             
-                            let item = try context.fetch(fetchRequest).first ?? ClipboardItem(context: context)
+                            let item = try context.fetch(fetchRequest).first ?? ClipboardItemMO(context: context)
                             item.id = record["id"] as? String ?? record.recordID.recordName
                             item.timestamp = record["timestamp"] as? Date ?? Date()
                             item.modificationDate = record.modificationDate ?? Date()
@@ -329,12 +300,12 @@ class CoreDataManager {
                             item.cloudKitRecordID = record.recordID.recordName
                             
                         case "ClipboardItemContent":
-                            let fetchRequest: NSFetchRequest<ClipboardItemContent> = ClipboardItemContent.fetchRequest()
+                            let fetchRequest: NSFetchRequest<ClipboardItemContentMO> = ClipboardItemContentMO.fetchRequest()
                             fetchRequest.predicate = NSPredicate(format: "id == %@ OR cloudKitRecordID == %@",
                                                                record["id"] as? String ?? "", 
                                                                record.recordID.recordName)
                             
-                            let content = try context.fetch(fetchRequest).first ?? ClipboardItemContent(context: context)
+                            let content = try context.fetch(fetchRequest).first ?? ClipboardItemContentMO(context: context)
                             content.id = record["id"] as? String
                             content.clipboardItemId = record["clipboardItemId"] as? String
                             content.timestamp = record["timestamp"] as? Date
@@ -356,6 +327,43 @@ class CoreDataManager {
                     
                     try context.save()
                     continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    
+    func fetchClipboardItems() async throws -> [ClipboardItemMO] {
+        return try await withCheckedThrowingContinuation { continuation in
+            let context = newBackgroundContext()
+            
+            context.performAndWait {
+                do {
+                    let fetchRequest: NSFetchRequest<ClipboardItemMO> = ClipboardItemMO.fetchRequest()
+                    fetchRequest.predicate = NSPredicate(format: "isRemoved == NO")
+                    fetchRequest.sortDescriptors = [NSSortDescriptor(keyPath: \ClipboardItemMO.timestamp, ascending: false)]
+                    
+                    let items = try context.fetch(fetchRequest)
+                    continuation.resume(returning: items)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    
+    func fetchContents(for itemId: String) async throws -> [ClipboardItemContentMO] {
+        return try await withCheckedThrowingContinuation { continuation in
+            let context = newBackgroundContext()
+            
+            context.performAndWait {
+                do {
+                    let fetchRequest: NSFetchRequest<ClipboardItemContentMO> = ClipboardItemContentMO.fetchRequest()
+                    fetchRequest.predicate = NSPredicate(format: "clipboardItemId == %@ AND isRemoved == NO", itemId)
+                    
+                    let contents = try context.fetch(fetchRequest)
+                    continuation.resume(returning: contents)
                 } catch {
                     continuation.resume(throwing: error)
                 }

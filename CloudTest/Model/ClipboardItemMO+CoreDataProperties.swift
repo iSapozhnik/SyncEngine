@@ -1,5 +1,5 @@
 //
-//  ClipboardItem+CoreDataProperties.swift
+//  ClipboardItemMO+CoreDataProperties.swift
 //  CloudTest
 //
 //  Created by Ivan Sapozhnik on 05.11.24.
@@ -10,10 +10,10 @@ import Foundation
 import CoreData
 
 
-extension ClipboardItem {
+extension ClipboardItemMO {
 
-    @nonobjc public class func fetchRequest() -> NSFetchRequest<ClipboardItem> {
-        return NSFetchRequest<ClipboardItem>(entityName: "ClipboardItem")
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<ClipboardItemMO> {
+        return NSFetchRequest<ClipboardItemMO>(entityName: "ClipboardItemMO")
     }
 
     @NSManaged public var id: String?
@@ -25,6 +25,6 @@ extension ClipboardItem {
 
 }
 
-extension ClipboardItem : Identifiable {
+extension ClipboardItemMO : Identifiable {
 
 }
