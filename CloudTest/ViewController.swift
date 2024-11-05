@@ -35,8 +35,8 @@ class ViewController: NSViewController {
                     await appendClipboardItem(item, to: attributedString)
                 }
                 
-                DispatchQueue.main.async { [weak self] in
-                    self?.textView.textStorage?.setAttributedString(attributedString)
+                await MainActor.run {
+                    textView.textStorage?.setAttributedString(attributedString)
                 }
             } catch {
                 print("Failed to load existing content:", error)
@@ -44,51 +44,40 @@ class ViewController: NSViewController {
         }
     }
     
-    private func fetchClipboardItems() async throws -> [ClipboardItemMO] {
+    private func fetchClipboardItems() async throws -> [ClipboardItem] {
         return try await CoreDataManager.shared.fetchClipboardItems()
     }
     
-    private func appendClipboardItem(_ item: ClipboardItemMO, to attributedString: NSMutableAttributedString) async {
-        // Add timestamp
-        if let timestamp = item.timestamp {
+    private func appendClipboardItem(_ item: ClipboardItem, to attributedString: NSMutableAttributedString) async {
+        await MainActor.run {
+            // Add timestamp
             let timestampAttr = NSAttributedString(
-                string: "[\(DateFormatter.localizedString(from: timestamp, dateStyle: .short, timeStyle: .medium))]\n",
+                string: "[\(DateFormatter.localizedString(from: item.timestamp, dateStyle: .short, timeStyle: .medium))]\n",
                 attributes: [
                     .foregroundColor: NSColor.systemBlue,
                     .font: NSFont.boldSystemFont(ofSize: 12)
                 ]
             )
-            await MainActor.run {
-                attributedString.append(timestampAttr)
-            }
-        }
-        
-        // Fetch and process contents
-        if let contents = try? await CoreDataManager.shared.fetchContents(for: item.id ?? "") {
-            for content in contents {
-                guard let typeIdentifier = content.typeIdentifier,
-                      let data = content.data else { continue }
-                
-                let type = NSPasteboard.PasteboardType(rawValue: typeIdentifier)
+            attributedString.append(timestampAttr)
+            
+            // Process contents
+            for content in item.contents {
+                let type = NSPasteboard.PasteboardType(rawValue: content.typeIdentifier)
                 
                 // Add type information
-                await MainActor.run {
-                    self.appendTypeInfo(type, to: attributedString)
-                    
-                    // Process and add content
-                    let (contentString, image) = self.processContent(type, data: data)
-                    self.appendContent(contentString, to: attributedString)
-                    
-                    // Add image preview if available
-                    if let image = image {
-                        self.appendImagePreview(image, to: attributedString)
-                    }
+                appendTypeInfo(type, to: attributedString)
+                
+                // Process and add content
+                let (contentString, image) = processContent(type, data: content.data)
+                appendContent(contentString, to: attributedString)
+                
+                // Add image preview if available
+                if let image = image {
+                    appendImagePreview(image, to: attributedString)
                 }
             }
-        }
-        
-        // Add spacing
-        await MainActor.run {
+            
+            // Add spacing
             attributedString.append(NSAttributedString(string: "\n\n"))
         }
     }
@@ -109,26 +98,24 @@ class ViewController: NSViewController {
     }
     
     private func handleClipboardContent(_ clipboardData: ClipboardData) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            
+        Task { @MainActor in
             let attributedString = NSMutableAttributedString()
             
             // Add timestamp
-            self.appendTimestamp(to: attributedString)
+            appendTimestamp(to: attributedString)
             
             // Process each type
-            clipboardData.types.forEach { type in
+            for type in clipboardData.types {
                 // Add type information
-                self.appendTypeInfo(type, to: attributedString)
+                appendTypeInfo(type, to: attributedString)
                 
                 // Process and add content
-                let (content, image) = self.processContent(type, data: clipboardData.contents[type])
-                self.appendContent(content, to: attributedString)
+                let (content, image) = processContent(type, data: clipboardData.contents[type])
+                appendContent(content, to: attributedString)
                 
                 // Add image preview if available
                 if let image = image {
-                    self.appendImagePreview(image, to: attributedString)
+                    appendImagePreview(image, to: attributedString)
                 }
             }
             
@@ -136,10 +123,10 @@ class ViewController: NSViewController {
             attributedString.append(NSAttributedString(string: "\n\n"))
             
             // Combine with existing content
-            let existingContent = self.textView.attributedString()
+            let existingContent = textView.attributedString()
             attributedString.append(existingContent)
             
-            self.textView.textStorage?.setAttributedString(attributedString)
+            textView.textStorage?.setAttributedString(attributedString)
         }
     }
     
