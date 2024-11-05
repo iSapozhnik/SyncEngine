@@ -65,15 +65,16 @@ class CoreDataManager {
         guard NSPasteboard.general.pasteboardItems?.isEmpty != true else {
             throw ClipboardError.invalidPasteboardContent
         }
-        NSPasteboard.general.pasteboardItems?.forEach { pasteboard in
-            guard let identifier = ClipboardIdentifier.generateUniqueIdentifier(pasteboard) else {
-                throw ClipboardError.invalidPasteboardContent
-            }
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            let context = newBackgroundContext()
             
-            return try await withCheckedThrowingContinuation { continuation in
-                let context = newBackgroundContext()
-                
-                context.performAndWait {
+            context.performAndWait {
+                NSPasteboard.general.pasteboardItems?.forEach { pasteboard in
+                    guard let identifier = ClipboardIdentifier.generateUniqueIdentifier(pasteboard) else {
+                        throw ClipboardError.invalidPasteboardContent
+                    }
+                    
                     do {
                         // Create new clipboard item
                         let clipboardItem = ClipboardItem(context: context)
@@ -90,7 +91,7 @@ class CoreDataManager {
                                 storedData[type.rawValue] = data
                             }
                         }
-//                        clipboardItem.data = storedData
+    //                        clipboardItem.data = storedData
                         
                         // Save to Core Data
                         try context.save()
@@ -113,41 +114,42 @@ class CoreDataManager {
                 }
             }
         }
+        
     }
     
     func restoreClipboardContent(_ identifier: String) async throws {
-            return try await withCheckedThrowingContinuation { continuation in
-                let context = newBackgroundContext()
-                
-                context.performAndWait {
-                    do {
-                        let fetchRequest: NSFetchRequest<ClipboardItem> = ClipboardItem.fetchRequest()
-                        fetchRequest.predicate = NSPredicate(format: "id == %@", identifier)
-                        
-                        guard let item = try context.fetch(fetchRequest).first else {
-                            throw ClipboardError.itemNotFound
-                        }
-                        DispatchQueue.main.async {
-                            let pasteboard = NSPasteboard.general
-                            pasteboard.clearContents()
-                            let typeIdentifiers = (item.typeIdentifiers ?? "").split(separator: ",").map { String($0) }
-                            for typeString in typeIdentifiers {
-//                                guard
-//                                    let type = NSPasteboard.PasteboardType(rawValue: typeString),
-//                                    let data = item.data[typeString] else { continue }
-                                let type = NSPasteboard.PasteboardType(rawValue: typeString)
-                                
-                                pasteboard.setData("data".data(using: .utf8), forType: type)
-                            }
-                            continuation.resume()
-                        }
-
-                    } catch {
-                        continuation.resume(throwing: ClipboardError.fetchFailed(error))
+        return try await withCheckedThrowingContinuation { continuation in
+            let context = newBackgroundContext()
+            
+            context.performAndWait {
+                do {
+                    let fetchRequest: NSFetchRequest<ClipboardItem> = ClipboardItem.fetchRequest()
+                    fetchRequest.predicate = NSPredicate(format: "id == %@", identifier)
+                    
+                    guard let item = try context.fetch(fetchRequest).first else {
+                        throw ClipboardError.itemNotFound
                     }
+                    DispatchQueue.main.async {
+                        let pasteboard = NSPasteboard.general
+                        pasteboard.clearContents()
+                        let typeIdentifiers = (item.typeIdentifiers ?? "").split(separator: ",").map { String($0) }
+                        for typeString in typeIdentifiers {
+                            //                                guard
+                            //                                    let type = NSPasteboard.PasteboardType(rawValue: typeString),
+                            //                                    let data = item.data[typeString] else { continue }
+                            let type = NSPasteboard.PasteboardType(rawValue: typeString)
+                            
+                            pasteboard.setData("data".data(using: .utf8), forType: type)
+                        }
+                        continuation.resume()
+                    }
+                    
+                } catch {
+                    continuation.resume(throwing: ClipboardError.fetchFailed(error))
                 }
             }
         }
+    }
     
     func deleteItem(_ identifier: String) async throws {
             return try await withCheckedThrowingContinuation { continuation in
