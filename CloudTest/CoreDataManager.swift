@@ -255,6 +255,10 @@ class CoreDataManager {
         logger.info("CloudKit sync completed successfully")
     }
     
+    func processSubscriptionNotification(with userInfo: [AnyHashable : Any]) {
+        CloudKitSyncEngine.shared.processSubscriptionNotification(with: userInfo)
+    }
+    
     @objc private func storeRemoteChange(_ notification: Notification) {
         Task {
             do {
