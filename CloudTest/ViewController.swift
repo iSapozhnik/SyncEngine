@@ -89,9 +89,11 @@ class ViewController: NSViewController {
             let stream = await clipboardObserver.startObserving()
             
             for await clipboardData in stream {
-                handleClipboardContent(clipboardData)
                 do {
-                    try await CoreDataManager.shared.saveClipboardData(clipboardData)
+                    let saved = try await CoreDataManager.shared.saveClipboardData(clipboardData)
+                    if saved {
+                        handleClipboardContent(clipboardData)
+                    }
                 } catch {
                     print("Failed to save clipboard data:", error)
                 }
