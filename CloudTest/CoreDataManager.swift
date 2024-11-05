@@ -240,6 +240,7 @@ class CoreDataManager {
     private func setupSync() {
         Task {
             do {
+//                try await eraseLocalStorage()
                 if try await CloudKitSyncEngine.shared.requestPermission() {
                     try await initiateSync()
                 }
@@ -473,6 +474,40 @@ class CoreDataManager {
                     try context.save()
                     continuation.resume()
                 } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    
+    func eraseLocalStorage() async throws {
+        return try await withCheckedThrowingContinuation { continuation in
+            let context = newBackgroundContext()
+            
+            context.performAndWait {
+                do {
+                    // Fetch and delete all ClipboardItemContent objects
+                    let contentFetchRequest: NSFetchRequest<NSFetchRequestResult> = ClipboardItemContentMO.fetchRequest()
+                    let contentDeleteRequest = NSBatchDeleteRequest(fetchRequest: contentFetchRequest)
+                    try context.execute(contentDeleteRequest)
+                    
+                    // Fetch and delete all ClipboardItem objects
+                    let itemFetchRequest: NSFetchRequest<NSFetchRequestResult> = ClipboardItemMO.fetchRequest()
+                    let itemDeleteRequest = NSBatchDeleteRequest(fetchRequest: itemFetchRequest)
+                    try context.execute(itemDeleteRequest)
+                    
+                    // Save the context to persist the deletions
+                    try context.save()
+                    
+                    // Reset the view context synchronously
+                    self.container.viewContext.performAndWait {
+                        self.container.viewContext.reset()
+                    }
+                    
+                    logger.info("Local storage successfully erased")
+                    continuation.resume()
+                } catch {
+                    logger.error("Failed to erase local storage: \(error.localizedDescription)")
                     continuation.resume(throwing: error)
                 }
             }
