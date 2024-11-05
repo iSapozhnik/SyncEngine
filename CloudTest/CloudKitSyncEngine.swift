@@ -10,6 +10,16 @@ import CloudKit
 import CoreData
 import os.log
 
+enum CloudKitError: LocalizedError {
+    case itemNotValid
+    
+    var errorDescription: String? {
+        switch self {
+        case .itemNotValid: return "Clipboard item does not have ID"
+        }
+    }
+}
+
 class CloudKitSyncEngine {
     static let shared = CloudKitSyncEngine()
     
@@ -60,25 +70,32 @@ class CloudKitSyncEngine {
     // MARK: - Private
     
     private func createRecord(from item: ClipboardItem) throws -> CKRecord {
-            let recordID = item.cloudKitRecordID.map { CKRecord.ID(recordName: $0) } ?? CKRecord.ID(recordName: item.id)
-            let record = CKRecord(recordType: "ClipboardItem", recordID: recordID)
-            
-            record["id"] = item.id
-            record["timestamp"] = item.timestamp
-            record["typeIdentifiers"] = item.typeIdentifiers
-            
-            // Handle large data by splitting into chunks
-            for (type, data) in item.data {
-                if data.count > 1_000_000 {
-                    let asset = CKAsset(data: data)
-                    record["\(type)_asset"] = asset
-                } else {
-                    record[type] = data
-                }
-            }
-            
-            return record
+        guard let itemID = item.id else {
+            throw CloudKitError.itemNotValid
         }
+        let recordID = item.cloudKitRecordID.map { CKRecord.ID(recordName: $0) } ?? CKRecord.ID(recordName: itemID)
+        let record = CKRecord(recordType: "ClipboardItem", recordID: recordID)
+        
+        record["id"] = item.id
+        record["timestamp"] = item.timestamp
+        record["typeIdentifiers"] = item.typeIdentifiers
+        
+        let tempURL = URL(fileURLWithPath: NSTemporaryDirectory())
+        
+        // Handle large data by splitting into chunks
+        for (type, data) in item.data {
+            if data.count > 1_000_000 {
+                let url = tempURL.appendingPathComponent(UUID().uuidString+".dat")
+                data.write(to: url, options: .atomic)
+                let asset = CKAsset(fileURL: url)
+                record["\(type)_asset"] = asset
+            } else {
+                record[type] = data
+            }
+        }
+        
+        return record
+    }
     
     private func fetchCloudChanges() async throws {
         var changesToken = syncToken
@@ -93,30 +110,30 @@ class CloudKitSyncEngine {
     }
     
     private func fetchNextBatch(since token: CKServerChangeToken?) async throws -> (CKServerChangeToken?, [CKRecord]) {
-         let configuration = CKFetchRecordZoneChangesOperation.ZoneConfiguration()
-         configuration.previousServerChangeToken = token
-         
-         let changes = try await database.recordZoneChanges(inZoneWith: CKRecordZone.default().zoneID, configurationBlock: { _ in configuration })
-         return (changes.changeToken, changes.modificationResultsByID.compactMap { $0.value.try?.recordID })
-     }
+        let configuration = CKFetchRecordZoneChangesOperation.ZoneConfiguration()
+        configuration.previousServerChangeToken = token
+        
+        let changes = try await database.recordZoneChanges(inZoneWith: CKRecordZone.default().zoneID, configurationBlock: { _ in configuration })
+        return (changes.changeToken, changes.modificationResultsByID.compactMap { $0.value.try?.recordID })
+    }
     
     private func processFetchedRecords(_ records: [CKRecord]) async throws {
-         let context = CoreDataManager.shared.newBackgroundContext()
-         
-         try await context.perform {
-             for record in records {
-                 if let item = try self.findOrCreateItem(for: record, in: context) {
-                     try self.update(item, with: record)
-                 }
-             }
-             try context.save()
-         }
-     }
+        let context = CoreDataManager.shared.newBackgroundContext()
+        
+        try await context.perform {
+            for record in records {
+                if let item = try self.findOrCreateItem(for: record, in: context) {
+                    try self.update(item, with: record)
+                }
+            }
+            try context.save()
+        }
+    }
     
     private func findOrCreateItem(for record: CKRecord, in context: NSManagedObjectContext) throws -> ClipboardItem? {
         let fetchRequest: NSFetchRequest<ClipboardItem> = ClipboardItem.fetchRequest()
         fetchRequest.predicate = NSPredicate(format: "id == %@ OR cloudKitRecordID == %@",
-                                           record.recordID.recordName, record.recordID.recordName)
+                                             record.recordID.recordName, record.recordID.recordName)
         
         let existingItem = try context.fetch(fetchRequest).first
         return existingItem ?? ClipboardItem(context: context)
