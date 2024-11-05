@@ -28,6 +28,8 @@ class CloudKitSyncEngine {
     private let container: CKContainer
     private let database: CKDatabase
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "CloudKitSyncEngine", category: "CloudKit")
+    let log = OSLog(subsystem: SyncConstants.subsystemName, category: String(describing: CloudKitSyncEngine.self))
+
     
     private var syncToken: CKServerChangeToken? {
         get {
@@ -247,6 +249,26 @@ class CloudKitSyncEngine {
         for item in localItems {
             try await save(item)
         }
+    }
+    
+    func processSubscriptionNotification(with userInfo: [AnyHashable : Any]) -> Bool {
+        os_log("%{public}@", log: log, type: .debug, #function)
+
+        guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) else {
+            os_log("Not a CKNotification", log: log, type: .error)
+            return false
+        }
+
+//        guard notification.subscriptionID == privateSubscriptionId else {
+//            os_log("Not our subscription ID", log: log, type: .debug)
+//            return false
+//        }
+
+        os_log("Received remote CloudKit notification for user data", log: log, type: .debug)
+
+//        fetchRemoteChanges()
+
+        return true
     }
     
     private func handleDeletedRecord(_ recordID: CKRecord.ID) async throws {
