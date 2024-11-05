@@ -54,30 +54,46 @@ class CloudKitSyncEngine {
     }
     
     func save(_ clipboardItem: ClipboardItem) async throws {
-        // Save the main ClipboardItem record
-        let itemRecord = try createClipboardItemRecord(from: clipboardItem)
-        let savedItemRecord = try await database.save(itemRecord)
-        
-        // Fetch and save all related content records
-        let contentRecords = try await fetchContentRecords(for: clipboardItem)
-        let savedContentRecords = try await withThrowingTaskGroup(of: CKRecord.self) { group in
-            for record in contentRecords {
-                group.addTask {
-                    try await self.database.save(record)
+        do {
+            // Save the main ClipboardItem record
+            let itemRecord = try createClipboardItemRecord(from: clipboardItem)
+            let savedItemRecord = try await database.save(itemRecord)
+            
+            // Fetch and save all related content records
+            let contentRecords = try await fetchContentRecords(for: clipboardItem)
+            let savedContentRecords = try await withThrowingTaskGroup(of: CKRecord.self) { group in
+                for record in contentRecords {
+                    group.addTask {
+                        try await self.database.save(record)
+                    }
                 }
+                
+                var savedRecords: [CKRecord] = []
+                for try await record in group {
+                    savedRecords.append(record)
+                }
+                return savedRecords
             }
             
-            var savedRecords: [CKRecord] = []
-            for try await record in group {
-                savedRecords.append(record)
+            // Update local records with CloudKit information
+            try await updateLocalRecords(clipboardItem: clipboardItem, 
+                                       itemRecord: savedItemRecord, 
+                                       contentRecords: savedContentRecords)
+        } catch let error as CKError {
+            switch error.code {
+            case .serverRecordChanged:
+                if let serverRecord = error.serverRecord {
+                    // Handle conflict
+                    let resolvedRecord = resolveConflict(
+                        clientRecord: try createClipboardItemRecord(from: clipboardItem),
+                        serverRecord: serverRecord
+                    )
+                    try await database.save(resolvedRecord)
+                }
+            default:
+                throw error
             }
-            return savedRecords
         }
-        
-        // Update local records with CloudKit information
-        try await updateLocalRecords(clipboardItem: clipboardItem, 
-                                   itemRecord: savedItemRecord, 
-                                   contentRecords: savedContentRecords)
     }
     
     func performSync() async throws {
@@ -151,29 +167,33 @@ class CloudKitSyncEngine {
     
     private func fetchCloudChanges() async throws {
         var changesToken = syncToken
+        var hasMoreChanges = true
         
-        repeat {
-            let (changeToken, records) = try await fetchNextBatch(since: changesToken)
+        while hasMoreChanges {
+            let (changeToken, records, moreComing) = try await fetchNextBatch(since: changesToken)
             try await processFetchedRecords(records)
             changesToken = changeToken
-        } while changesToken != nil
+            hasMoreChanges = moreComing
+        }
         
         syncToken = changesToken
     }
     
-    private func fetchNextBatch(since token: CKServerChangeToken?) async throws -> (CKServerChangeToken?, [CKRecord]) {
+    private func fetchNextBatch(since token: CKServerChangeToken?) async throws -> (CKServerChangeToken?, [CKRecord], Bool) {
         let zoneID = CKRecordZone.default().zoneID
         
-        let changes = try await database.recordZoneChanges(inZoneWith: zoneID, since: token)
-        
+        let allChanges = try await database.recordZoneChanges(inZoneWith: zoneID, since: token)
+        let changes = allChanges.modificationResultsByID.compactMapValues { try? $0.get().record }
         var records: [CKRecord] = []
-        for change in changes.modificationResultsByID.values {
-            if let record = try? change.get().record {
-                records.append(record)
-            }
+        changes.forEach { _, record in
+            records.append(record)
+        }
+        let deletetions = allChanges.deletions.map { $0.recordID }
+        for deletion in deletetions {
+            try await handleDeletedRecord(deletion)
         }
         
-        return (changes.changeToken, records)
+        return (allChanges.changeToken, records, allChanges.moreComing)
     }
     
     private func processFetchedRecords(_ records: [CKRecord]) async throws {
@@ -186,5 +206,17 @@ class CloudKitSyncEngine {
         for item in localItems {
             try await save(item)
         }
+    }
+    
+    private func handleDeletedRecord(_ recordID: CKRecord.ID) async throws {
+        // Mark the corresponding CoreData object as removed
+        try await CoreDataManager.shared.markAsRemoved(cloudKitRecordID: recordID.recordName)
+    }
+    
+    // Add this method to handle record conflicts
+    private func resolveConflict(clientRecord: CKRecord, serverRecord: CKRecord) -> CKRecord {
+        // Use server record as the source of truth for now
+        // You might want to implement more sophisticated conflict resolution
+        return serverRecord
     }
 }
