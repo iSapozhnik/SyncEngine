@@ -261,7 +261,7 @@ class CoreDataManager {
         }
     }
     
-    func fetchLocalItemsPendingCloudKitSync() async throws -> [ClipboardItemMO] {
+    func fetchLocalItemsPendingCloudKitSync() async throws -> [ClipboardItem] {
         return try await withCheckedThrowingContinuation { continuation in
             let context = newBackgroundContext()
             
@@ -270,7 +270,24 @@ class CoreDataManager {
                     let fetchRequest: NSFetchRequest<ClipboardItemMO> = ClipboardItemMO.fetchRequest()
                     fetchRequest.predicate = NSPredicate(format: "cloudKitRecordID == NULL")
                     
-                    let items = try context.fetch(fetchRequest)
+                    let managedObjects = try context.fetch(fetchRequest)
+                    let items = try managedObjects.map { managedObject -> ClipboardItem in
+                        let contentsFetchRequest: NSFetchRequest<ClipboardItemContentMO> = ClipboardItemContentMO.fetchRequest()
+                        contentsFetchRequest.predicate = NSPredicate(format: "clipboardItemId == %@", managedObject.id ?? "")
+                        
+                        let contentManagedObjects = try context.fetch(contentsFetchRequest)
+                        let contents = contentManagedObjects.map { ClipboardItemContent(managedObject: $0) }
+                        
+                        return ClipboardItem(
+                            id: managedObject.id ?? "",
+                            timestamp: managedObject.timestamp ?? Date(),
+                            modificationDate: managedObject.modificationDate ?? Date(),
+                            isRemoved: managedObject.isRemoved,
+                            cloudKitRecordID: managedObject.cloudKitRecordID,
+                            contents: contents
+                        )
+                    }
+                    
                     continuation.resume(returning: items)
                 } catch {
                     continuation.resume(throwing: error)
@@ -334,7 +351,7 @@ class CoreDataManager {
         }
     }
     
-    func fetchClipboardItems() async throws -> [ClipboardItemMO] {
+    func fetchClipboardItems() async throws -> [ClipboardItem] {
         return try await withCheckedThrowingContinuation { continuation in
             let context = newBackgroundContext()
             
@@ -344,7 +361,33 @@ class CoreDataManager {
                     fetchRequest.predicate = NSPredicate(format: "isRemoved == NO")
                     fetchRequest.sortDescriptors = [NSSortDescriptor(keyPath: \ClipboardItemMO.timestamp, ascending: false)]
                     
-                    let items = try context.fetch(fetchRequest)
+                    let managedObjects = try context.fetch(fetchRequest)
+                    
+                    // Convert to value types and fetch their contents
+                    var items: [ClipboardItem] = []
+                    for managedObject in managedObjects {
+                        var item = ClipboardItem(managedObject: managedObject)
+                        
+                        // Fetch contents for this item
+                        let contentsFetchRequest: NSFetchRequest<ClipboardItemContentMO> = ClipboardItemContentMO.fetchRequest()
+                        contentsFetchRequest.predicate = NSPredicate(format: "clipboardItemId == %@ AND isRemoved == NO", managedObject.id ?? "")
+                        
+                        let contentManagedObjects = try context.fetch(contentsFetchRequest)
+                        let contents = contentManagedObjects.map { ClipboardItemContent(managedObject: $0) }
+                        
+                        // Create new item with contents
+                        item = ClipboardItem(
+                            id: item.id,
+                            timestamp: item.timestamp,
+                            modificationDate: item.modificationDate,
+                            isRemoved: item.isRemoved,
+                            cloudKitRecordID: item.cloudKitRecordID,
+                            contents: contents
+                        )
+                        
+                        items.append(item)
+                    }
+                    
                     continuation.resume(returning: items)
                 } catch {
                     continuation.resume(throwing: error)
@@ -353,17 +396,37 @@ class CoreDataManager {
         }
     }
     
-    func fetchContents(for itemId: String) async throws -> [ClipboardItemContentMO] {
+    func updateCloudKitRecords(for clipboardItem: ClipboardItem,
+                              itemRecord: CKRecord,
+                              contentRecords: [CKRecord]) async throws {
         return try await withCheckedThrowingContinuation { continuation in
             let context = newBackgroundContext()
             
             context.performAndWait {
                 do {
-                    let fetchRequest: NSFetchRequest<ClipboardItemContentMO> = ClipboardItemContentMO.fetchRequest()
-                    fetchRequest.predicate = NSPredicate(format: "clipboardItemId == %@ AND isRemoved == NO", itemId)
+                    // Fetch and update main item
+                    let itemFetchRequest: NSFetchRequest<ClipboardItemMO> = ClipboardItemMO.fetchRequest()
+                    itemFetchRequest.predicate = NSPredicate(format: "id == %@", clipboardItem.id)
                     
-                    let contents = try context.fetch(fetchRequest)
-                    continuation.resume(returning: contents)
+                    if let managedItem = try context.fetch(itemFetchRequest).first {
+                        managedItem.cloudKitRecordID = itemRecord.recordID.recordName
+                        
+                        // Update content items
+                        let contentFetchRequest: NSFetchRequest<ClipboardItemContentMO> = ClipboardItemContentMO.fetchRequest()
+                        contentFetchRequest.predicate = NSPredicate(format: "clipboardItemId == %@", clipboardItem.id)
+                        let contents = try context.fetch(contentFetchRequest)
+                        
+                        for record in contentRecords {
+                            if let content = contents.first(where: { $0.id == record["id"] as? String }) {
+                                content.cloudKitRecordID = record.recordID.recordName
+                            }
+                        }
+                        
+                        try context.save()
+                        continuation.resume()
+                    } else {
+                        continuation.resume(throwing: CloudKitError.itemNotFound)
+                    }
                 } catch {
                     continuation.resume(throwing: error)
                 }

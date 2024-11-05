@@ -56,7 +56,7 @@
          BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
          <BreakpointContent
             uuid = "D5E45314-7631-4A62-8F5F-989A0E2704D3"
-            shouldBeEnabled = "Yes"
+            shouldBeEnabled = "No"
             ignoreCount = "0"
             continueAfterRunningActions = "No"
             filePath = "CloudTest/ViewController.swift"
@@ -66,57 +66,13 @@
             endingLineNumber = "68"
             landmarkName = "appendClipboardItem(_:to:)"
             landmarkType = "7">
-            <Locations>
-               <Location
-                  uuid = "D5E45314-7631-4A62-8F5F-989A0E2704D3 - b9ba272b9ca4d138"
-                  shouldBeEnabled = "Yes"
-                  ignoreCount = "0"
-                  continueAfterRunningActions = "No"
-                  symbolName = "(5) suspend resume partial function for CloudTest.ViewController.appendClipboardItem(_: CloudTest.ClipboardItem, to: __C.NSMutableAttributedString) async -&gt; ()"
-                  moduleName = "CloudTest.debug.dylib"
-                  usesParentBreakpointCondition = "Yes"
-                  urlString = "file:///Users/ivansapozhnik/Developer/CloudTest/CloudTest/ViewController.swift"
-                  startingColumnNumber = "9223372036854775807"
-                  endingColumnNumber = "9223372036854775807"
-                  startingLineNumber = "68"
-                  endingLineNumber = "68">
-               </Location>
-               <Location
-                  uuid = "D5E45314-7631-4A62-8F5F-989A0E2704D3 - 4c5ef917e6fb8d3e"
-                  shouldBeEnabled = "Yes"
-                  ignoreCount = "0"
-                  continueAfterRunningActions = "No"
-                  symbolName = "(7) suspend resume partial function for CloudTest.ViewController.appendClipboardItem(_: CloudTest.ClipboardItem, to: __C.NSMutableAttributedString) async -&gt; ()"
-                  moduleName = "CloudTest.debug.dylib"
-                  usesParentBreakpointCondition = "Yes"
-                  urlString = "file:///Users/ivansapozhnik/Developer/CloudTest/CloudTest/ViewController.swift"
-                  startingColumnNumber = "9223372036854775807"
-                  endingColumnNumber = "9223372036854775807"
-                  startingLineNumber = "68"
-                  endingLineNumber = "68">
-               </Location>
-               <Location
-                  uuid = "D5E45314-7631-4A62-8F5F-989A0E2704D3 - d577f2b7fe70aadc"
-                  shouldBeEnabled = "Yes"
-                  ignoreCount = "0"
-                  continueAfterRunningActions = "No"
-                  symbolName = "(10) suspend resume partial function for CloudTest.ViewController.appendClipboardItem(_: CloudTest.ClipboardItem, to: __C.NSMutableAttributedString) async -&gt; ()"
-                  moduleName = "CloudTest.debug.dylib"
-                  usesParentBreakpointCondition = "Yes"
-                  urlString = "file:///Users/ivansapozhnik/Developer/CloudTest/CloudTest/ViewController.swift"
-                  startingColumnNumber = "9223372036854775807"
-                  endingColumnNumber = "9223372036854775807"
-                  startingLineNumber = "68"
-                  endingLineNumber = "68">
-               </Location>
-            </Locations>
          </BreakpointContent>
       </BreakpointProxy>
       <BreakpointProxy
          BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
          <BreakpointContent
             uuid = "45C751F7-4D4F-4EB7-BFB3-53CAE6187FBD"
-            shouldBeEnabled = "Yes"
+            shouldBeEnabled = "No"
             ignoreCount = "0"
             continueAfterRunningActions = "No"
             filePath = "CloudTest/CoreDataManager.swift"
@@ -124,7 +80,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "366"
             endingLineNumber = "366"
-            landmarkName = "fetchContents(for:)"
+            landmarkName = "fetchClipboardItems()"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
@@ -140,7 +96,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "348"
             endingLineNumber = "348"
-            landmarkName = "fetchClipboardItems()"
+            landmarkName = "processFetchedCloudKitRecords(_:)"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
