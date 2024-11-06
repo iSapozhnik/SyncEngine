@@ -1,6 +1,6 @@
 import CloudKit
 
-public protocol CloudKitModel {
+public protocol Syncable {
     var id: String { get }
     var ckData: Data? { get set }
     
@@ -18,7 +18,7 @@ public protocol CloudKitModel {
 }
 
 // Default implementation for common CloudKit record conversion
-extension CloudKitModel {
+extension Syncable {
     public var record: CKRecord {
         let recordID = CKRecord.ID(recordName: id, zoneID: SyncConstants.customZoneID)
         let record = CKRecord(recordType: Self.recordType, recordID: recordID)
@@ -34,4 +34,4 @@ extension CloudKitModel {
         
         return record
     }
-} 
+}

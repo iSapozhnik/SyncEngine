@@ -19,7 +19,7 @@ public struct SyncConstants {
     public static let subsystemName = "com.isapozhnik.CloudTest"
 
     public static let customZoneID: CKRecordZone.ID = {
-        CKRecordZone.ID(zoneName: "CloudTest", ownerName: CKCurrentUserDefaultName)
+        CKRecordZone.ID(zoneName: "CustomZone", ownerName: CKCurrentUserDefaultName)
     }()
 
 }
@@ -28,8 +28,7 @@ extension CKRecord.RecordType {
     static let recipe = "Recipe"
 }
 
-
-final class SyncEngine<Model: CloudKitModel> {
+final class SyncEngine<Model: Syncable> {
 
     let log = OSLog(subsystem: SyncConstants.subsystemName, category: String(describing: SyncEngine.self))
 
@@ -58,8 +57,10 @@ final class SyncEngine<Model: CloudKitModel> {
     init(defaults: UserDefaults, initialModels: [Model]) {
         self.defaults = defaults
         self.buffer = initialModels
-
-        start()
+    }
+    
+    func requestPermission() async throws -> Bool {
+        try await container.accountStatus() == .available
     }
 
     private let workQueue = DispatchQueue(label: "SyncEngine.Work", qos: .userInitiated)
@@ -67,7 +68,7 @@ final class SyncEngine<Model: CloudKitModel> {
 
     // MARK: - Setup boilerplate
 
-    private func start() {
+    func start() {
         prepareCloudEnvironment { [weak self] in
             guard let self = self else { return }
 
@@ -397,7 +398,7 @@ final class SyncEngine<Model: CloudKitModel> {
     }
 
     private func updateLocalModelsAfterUpload(with records: [CKRecord]) {
-        let models: [Model] = records.compactMap { r in
+        let models: [Model] = records.compactMap { (r: CKRecord) -> Model? in
             guard var model = buffer.first(where: { $0.id == r.recordID.recordName }) else { return nil }
 
             model.ckData = r.encodedSystemFields

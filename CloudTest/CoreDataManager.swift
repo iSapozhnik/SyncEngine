@@ -17,6 +17,7 @@ class CoreDataManager {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "CoreDataManager", category: "CoreData")
 
     static let shared = CoreDataManager()
+    private var syncEngine: SyncEngine<ClipboardItem>?
     
     init() {
         container = NSPersistentContainer(name: "CloudTest")
@@ -82,7 +83,7 @@ class CoreDataManager {
                     let clipboardItem = ClipboardItemMO(context: context)
                     clipboardItem.id = clipboardData.identifier
                     clipboardItem.timestamp = clipboardData.timestamp
-                    clipboardItem.modificationDate = Date()
+                    clipboardItem.updatedDate = Date()
                     clipboardItem.isRemoved = false
                     
                     // Store data for each type
@@ -94,7 +95,7 @@ class CoreDataManager {
                             content.typeIdentifier = type.rawValue
                             content.data = data
                             content.timestamp = clipboardData.timestamp
-                            content.modificationDate = Date()
+                            content.updatedDate = Date()
                             content.isRemoved = false
                         }
                     }
@@ -241,9 +242,31 @@ class CoreDataManager {
         Task {
             do {
 //                try await eraseLocalStorage()
-                if try await CloudKitSyncEngine.shared.requestPermission() {
-                    try await initiateSync()
+                let storedItems = try await fetchClipboardItems()
+                let syncEngine = SyncEngine(
+                    defaults: UserDefaults.standard,
+                    initialModels: storedItems
+                )
+                if try await syncEngine.requestPermission() {
+                    syncEngine.didUpdateModels = { [weak self] models in
+                        guard let self else { return }
+                        logger.debug("didUpdateModels: \(models)")
+                        //                    self?.updateAfterSync(recipes)
+                    }
+                    
+                    syncEngine.didDeleteModels = { [weak self] identifiers in
+                        guard let self else { return }
+                        logger.debug("didDeleteModels: \(identifiers)")
+                        
+                        //                    self?.recipes.removeAll(where: { identifiers.contains($0.id) })
+                        //                    self?.save()
+                    }
+                    
+                    syncEngine.start()
+                    self.syncEngine = syncEngine
                 }
+                
+                
             } catch {
                 logger.error("CloudKit setup failed: \(error.localizedDescription)")
             }
@@ -251,8 +274,8 @@ class CoreDataManager {
     }
     
     private func initiateSync() async throws {
-        try await CloudKitSyncEngine.shared.performSync()
-        logger.info("CloudKit sync completed successfully")
+//        try await CloudKitSyncEngine.shared.performSync()
+//        logger.info("CloudKit sync completed successfully")
     }
     
     func processSubscriptionNotification(with userInfo: [AnyHashable : Any]) {
@@ -266,7 +289,7 @@ class CoreDataManager {
                 await container.viewContext.perform {
                     self.container.viewContext.refreshAllObjects()
                 }
-                try await initiateSync()
+//                try await initiateSync()
             } catch {
                 logger.error("Failed to process remote changes: \(error.localizedDescription)")
             }
@@ -301,7 +324,7 @@ class CoreDataManager {
                         return ClipboardItem(
                             id: managedObject.id ?? "",
                             timestamp: managedObject.timestamp ?? Date(),
-                            modificationDate: managedObject.modificationDate ?? Date(),
+                            updatedDate: managedObject.updatedDate ?? Date(),
                             isRemoved: managedObject.isRemoved,
                             cloudKitRecordID: managedObject.cloudKitRecordID,
                             contents: contents
@@ -332,7 +355,7 @@ class CoreDataManager {
                             let item = try context.fetch(fetchRequest).first ?? ClipboardItemMO(context: context)
                             item.id = record["id"] as? String ?? record.recordID.recordName
                             item.timestamp = record["timestamp"] as? Date ?? Date()
-                            item.modificationDate = record.modificationDate ?? Date()
+                            item.updatedDate = record.modificationDate ?? Date()
                             item.isRemoved = record["isRemoved"] as? Bool ?? false
                             item.cloudKitRecordID = record.recordID.recordName
                             
@@ -346,7 +369,7 @@ class CoreDataManager {
                             content.id = record["id"] as? String
                             content.clipboardItemId = record["clipboardItemId"] as? String
                             content.timestamp = record["timestamp"] as? Date
-                            content.modificationDate = record.modificationDate
+                            content.updatedDate = record.modificationDate
                             content.isRemoved = record["isRemoved"] as? Bool ?? false
                             content.typeIdentifier = record["typeIdentifier"] as? String
                             content.cloudKitRecordID = record.recordID.recordName
@@ -399,7 +422,7 @@ class CoreDataManager {
                         item = ClipboardItem(
                             id: item.id,
                             timestamp: item.timestamp,
-                            modificationDate: item.modificationDate,
+                            updatedDate: item.updatedDate,
                             isRemoved: item.isRemoved,
                             cloudKitRecordID: item.cloudKitRecordID,
                             contents: contents
