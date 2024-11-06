@@ -36,7 +36,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 //        return persistentContainer.viewContext.undoManager
 //    }
 
-//    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
 //        // Save changes in the application's managed object context before the application terminates.
 //        let context = persistentContainer.viewContext
 //        
@@ -76,8 +76,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 //            }
 //        }
 //        // If we got here, it is time to quit.
-//        return .terminateNow
-//    }
+        return .terminateNow
+    }
 
 }
 

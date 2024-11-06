@@ -80,11 +80,14 @@ class CoreDataManager {
                     }
                     
                     // Create new clipboard item
+                    let date = Date()
                     let clipboardItem = ClipboardItemMO(context: context)
                     clipboardItem.id = clipboardData.identifier
                     clipboardItem.timestamp = clipboardData.timestamp
-                    clipboardItem.updatedDate = Date()
+                    clipboardItem.updatedDate = date
                     clipboardItem.isRemoved = false
+                    
+                    var contentItems: [ClipboardItemContent] = []
                     
                     // Store data for each type
                     for type in clipboardData.types {
@@ -95,13 +98,52 @@ class CoreDataManager {
                             content.typeIdentifier = type.rawValue
                             content.data = data
                             content.timestamp = clipboardData.timestamp
-                            content.updatedDate = Date()
+                            content.updatedDate = date
                             content.isRemoved = false
+                            
+                            // Create ClipboardItemContent for sync
+                            let contentItem = ClipboardItemContent(
+                                id: content.id ?? "",
+                                clipboardItemId: clipboardData.identifier,
+                                typeIdentifier: type.rawValue,
+                                data: content.data ?? Data(),
+                                timestamp: date,
+                                updatedDate: date,
+                                isRemoved: content.isRemoved,
+                                cloudKitRecordID: content.cloudKitRecordID
+                            )
+                            contentItems.append(contentItem)
                         }
                     }
                     
                     try context.save()
-                    continuation.resume(returning: true)
+                    
+                    // Create ClipboardItem for sync
+                    let item = ClipboardItem(
+                        id: clipboardData.identifier,
+                        timestamp: date,
+                        updatedDate: date,
+                        isRemoved: clipboardItem.isRemoved,
+                        cloudKitRecordID: clipboardItem.cloudKitRecordID,
+                        contents: contentItems
+                    )
+                    
+                    // Upload to CloudKit
+//                    Task {
+//                        do {
+//                            // First upload all content items
+                            for content in contentItems {
+                                syncEngine?.upload(content)
+                            }
+//                            // Then upload the main item with references to contents
+                            syncEngine?.upload(item)
+                            continuation.resume(returning: true)
+//                        } catch {
+//                            continuation.resume(throwing: ClipboardError.saveFailed(error))
+//                        }
+//                    }
+                    
+//                    continuation.resume(returning: true)
                     
                 } catch {
                     continuation.resume(throwing: ClipboardError.saveFailed(error))
