@@ -282,7 +282,7 @@ final class SyncEngine<Model: Syncable> {
 
         os_log("Found %d local model(s) which haven't been uploaded yet.", log: self.log, type: .debug, models.count)
 
-        let records = models.map { $0.record }
+        let records = models.map { $0.record() }
 
         uploadRecords(records)
     }
@@ -292,7 +292,7 @@ final class SyncEngine<Model: Syncable> {
 
         buffer.append(model)
 
-        uploadRecords([model.record])
+        uploadRecords([model.record()])
     }
 
     func delete(_ model: Model) {
