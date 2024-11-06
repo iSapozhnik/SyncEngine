@@ -152,8 +152,9 @@ class CloudKitSyncEngine {
     // MARK: - Private
     
     private func createClipboardItemRecord(from item: ClipboardItem) throws -> CKRecord {
-        let recordID = item.cloudKitRecordID.map { CKRecord.ID(recordName: $0) } 
-        ?? CKRecord.ID(recordName: item.id)
+        let zoneID = CKRecordZone(zoneName: "CustomZone").zoneID
+        let recordID = item.cloudKitRecordID.map { CKRecord.ID(recordName: $0, zoneID: zoneID) }
+        ?? CKRecord.ID(recordName: item.id, zoneID: zoneID)
         let record = CKRecord(recordType: "ClipboardItem", recordID: recordID)
         
         record["id"] = item.id
@@ -168,9 +169,10 @@ class CloudKitSyncEngine {
 //        guard let contentID = content.id else {
 //            throw CloudKitError.itemNotValid
 //        }
-        
-        let recordID = content.cloudKitRecordID.map { CKRecord.ID(recordName: $0) }
-        ?? CKRecord.ID(recordName: content.id)
+        let zoneID = CKRecordZone(zoneName: "CustomZone").zoneID
+
+        let recordID = content.cloudKitRecordID.map { CKRecord.ID(recordName: $0, zoneID: zoneID) }
+        ?? CKRecord.ID(recordName: content.id, zoneID: zoneID)
         let record = CKRecord(recordType: "ClipboardItemContent", recordID: recordID)
         
         record["id"] = content.id
@@ -224,7 +226,7 @@ class CloudKitSyncEngine {
     
     private func fetchNextBatch(since token: CKServerChangeToken?) async throws -> (CKServerChangeToken?, [CKRecord], Bool) {
         let zoneID = CKRecordZone(zoneName: "CustomZone").zoneID
-        
+
         let allChanges = try await database.recordZoneChanges(inZoneWith: zoneID, since: token)
         let changes = allChanges.modificationResultsByID.compactMapValues { try? $0.get().record }
         var records: [CKRecord] = []

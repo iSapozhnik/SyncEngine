@@ -9,10 +9,6 @@ import Cocoa
 
 @main
 class AppDelegate: NSObject, NSApplicationDelegate {
-
-    
-
-
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         // Insert code here to initialize your application
         NSApp.registerForRemoteNotifications()
@@ -28,6 +24,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String : Any]) {
         print("Did receive remote notification: \(userInfo)")
+        CoreDataManager.shared.processSubscriptionNotification(with: userInfo)
+    }
+    
+    func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
+        print("didFailToRegisterForRemoteNotificationsWithError \(error.localizedDescription)")
     }
 
 //    func windowWillReturnUndoManager(window: NSWindow) -> UndoManager? {

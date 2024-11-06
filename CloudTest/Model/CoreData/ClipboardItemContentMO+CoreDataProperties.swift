@@ -2,7 +2,7 @@
 //  ClipboardItemContentMO+CoreDataProperties.swift
 //  CloudTest
 //
-//  Created by Ivan Sapozhnik on 05.11.24.
+//  Created by Ivan Sapozhnik on 06.11.24.
 //
 //
 
@@ -16,14 +16,14 @@ extension ClipboardItemContentMO {
         return NSFetchRequest<ClipboardItemContentMO>(entityName: "ClipboardItemContentMO")
     }
 
+    @NSManaged public var clipboardItemId: String?
     @NSManaged public var cloudKitRecordID: String?
+    @NSManaged public var data: Data?
     @NSManaged public var id: String?
     @NSManaged public var isRemoved: Bool
-    @NSManaged public var modificationDate: Date?
+    @NSManaged public var updatedDate: Date?
     @NSManaged public var timestamp: Date?
     @NSManaged public var typeIdentifier: String?
-    @NSManaged public var data: Data?
-    @NSManaged public var clipboardItemId: String?
 
 }
 
