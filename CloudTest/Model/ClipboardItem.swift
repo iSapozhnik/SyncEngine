@@ -30,6 +30,7 @@ extension RecordKeys {
         static var timestamp: RecordKeyPath<NSDate> { RecordKeyPath(rawValue: "timestamp") }
         static var updatedDate: RecordKeyPath<NSDate> { RecordKeyPath(rawValue: "updatedDate") }
         static var isRemoved: RecordKeyPath<NSNumber> { RecordKeyPath(rawValue: "isRemoved") }
+        static var parent: RecordKeyPath<CKRecord.Reference> { RecordKeyPath(rawValue: "parent") }
     }
 }
 
@@ -125,15 +126,36 @@ struct ClipboardItemContent: CloudKitRecord {
     static var recordType: String { "ClipboardItemContent" }
     
     var recordKeys: [String: CKRecordValue] {
-        [
+        var keys: [String: CKRecordValue] = [
             RecordKeys.ClipboardItemContent.id.rawValue: id as NSString,
             RecordKeys.ClipboardItemContent.clipboardItemId.rawValue: clipboardItemId as NSString,
             RecordKeys.ClipboardItemContent.typeIdentifier.rawValue: typeIdentifier as NSString,
-            RecordKeys.ClipboardItemContent.data.rawValue: data as NSData,
             RecordKeys.ClipboardItemContent.timestamp.rawValue: timestamp as NSDate,
             RecordKeys.ClipboardItemContent.updatedDate.rawValue: updatedDate as NSDate,
             RecordKeys.ClipboardItemContent.isRemoved.rawValue: isRemoved as NSNumber
         ]
+        
+        // Add parent reference
+        let parentRecordID = CKRecord.ID(recordName: clipboardItemId, zoneID: SyncConstants.customZoneID)
+        keys[RecordKeys.ClipboardItemContent.parent.rawValue] = CKRecord.Reference(
+            recordID: parentRecordID,
+            action: .none
+        )
+        
+        if data.count > 1_000_000 { // 1MB threshold
+            let tempURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+            do {
+                try data.write(to: tempURL)
+            } catch {
+                
+            }
+            let asset = CKAsset(fileURL: tempURL)
+            keys[RecordKeys.ClipboardItemContent.data.rawValue] = asset
+        } else {
+            keys[RecordKeys.ClipboardItemContent.data.rawValue] = data as NSData
+        }
+        
+        return keys
     }
 }
 

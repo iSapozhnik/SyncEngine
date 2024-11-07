@@ -340,13 +340,24 @@ final class SyncEngine<Model: Syncable> {
         cloudOperationQueue.addOperation(operation)
     }
 
-    private func uploadRecords(_ records: [CKRecord]) {
-        guard !records.isEmpty else { return }
+    private func uploadRecords(_ parentRecords: [CKRecord]) {
+        guard !parentRecords.isEmpty else { return }
+        var records: [CKRecord] = parentRecords
+        for record in parentRecords {
+            let recordID = CKRecord.ID(recordName: UUID().uuidString, zoneID: SyncConstants.customZoneID)
+            let whistleRecord = CKRecord(recordType: "Suggestions", recordID: recordID)
+            let id = CKRecord.ID(recordName: record.recordID.recordName, zoneID: SyncConstants.customZoneID)
+
+            let reference = CKRecord.Reference(recordID: id, action: .deleteSelf)
+            whistleRecord["text"] = "Some text" as CKRecordValue
+            whistleRecord["parent"] = reference as CKRecordValue
+            
+            records.append(whistleRecord)
+        }
+        
 
         os_log("%{public}@ with %d record(s)", log: log, type: .debug, #function, records.count)
-
         let operation = CKModifyRecordsOperation(recordsToSave: records, recordIDsToDelete: nil)
-
         operation.perRecordCompletionBlock = { [weak self] record, error in
             guard let self = self else { return }
 
@@ -391,8 +402,15 @@ final class SyncEngine<Model: Syncable> {
 
         operation.savePolicy = .ifServerRecordUnchanged
         operation.qualityOfService = .userInitiated
+        
+        // Add per-record progress tracking
+        operation.perRecordProgressBlock = { record, progress in
+            os_log("Progress for record %@: %.2f", log: self.log, type: .debug, record.recordID.recordName, progress)
+        }
+        
+        // Set batch size for large operations
+        operation.isAtomic = false
         operation.database = privateDatabase
-
         cloudOperationQueue.addOperation(operation)
     }
 
