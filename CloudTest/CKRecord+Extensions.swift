@@ -114,7 +114,6 @@ extension CKAsset {
         return try? Data(contentsOf: url)
     }
 }
-
 // MARK: - Record Keys
 struct RecordKeys {
     struct User {
@@ -126,37 +125,3 @@ struct RecordKeys {
     // struct Recipe { ... }
     // struct Comment { ... }
 }
-
-// MARK: - User Model
-struct User: CloudKitRecord {
-    let id: String
-    let name: String
-    
-    static var recordType: String { "User" }
-    
-    var recordKeys: [String: CKRecordValue] {
-        [
-            RecordKeys.User.id.rawValue: id as NSString,
-            RecordKeys.User.name.rawValue: name as NSString
-        ]
-    }
-}
-
-// MARK: - CloudKit Record Creation
-extension User {
-    func record() -> CKRecord {
-        CKRecord(self)
-    }
-    
-    init?(from record: CKRecord) {
-        guard
-            let id = record[RecordKeys.User.id] as? String,
-            let name = record[RecordKeys.User.name] as? String
-        else { return nil }
-        
-        self.id = id
-        self.name = name
-    }
-}
-
-
