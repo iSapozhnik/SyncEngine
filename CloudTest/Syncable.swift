@@ -11,15 +11,15 @@ public protocol Syncable {
     func recordLegacy() -> CKRecord
     
     /// Create an instance from a CloudKit record
-    init(record: CKRecord, configure: ((inout Self) throws -> Void)?) throws
+    init(record: CKRecord, configure: ((inout Self) -> Void)?) throws
     
     /// Resolve conflicts between server and local records
     static func resolveConflict(clientRecord: CKRecord, serverRecord: CKRecord) -> CKRecord
 }
 
 extension Syncable {
-    init(record: CKRecord, configure: ((inout Self) throws -> Void)? = nil) throws {
-        try self.init(record: record, configure: nil)
+    init(record: CKRecord, configure: ((inout Self) -> Void)? = nil) throws {
+        try self.init(record: record, configure: configure)
     }
 }
 
