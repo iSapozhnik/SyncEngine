@@ -3,6 +3,8 @@ import CloudKit
 
 // MARK: - ClipboardItem
 struct ClipboardItem {
+    /// Used to store the encoded `CKRecord.ID` so that local records can be matched with
+    /// records on the server. This ensures updates don't cause duplication of records.
     var ckData: Data? = nil
     let id: String
     let timestamp: Date
@@ -68,47 +70,47 @@ extension ClipboardItem: CloudKitRecord {
 
 // MARK: - ClipboardItem Extensions
 extension ClipboardItem {
-    init(
-        id: String,
-        timestamp: Date,
-        updatedDate: Date,
-        isRemoved: Bool,
-        cloudKitRecordID: String? = nil,
-        contents: [ClipboardItemContent]
-    ) {
-        self.id = id
-        self.timestamp = timestamp
-        self.updatedDate = updatedDate
-        self.isRemoved = isRemoved
-        self.cloudKitRecordID = cloudKitRecordID
-        self.contents = contents
-    }
+//    init(
+//        id: String,
+//        timestamp: Date,
+//        updatedDate: Date,
+//        isRemoved: Bool,
+//        cloudKitRecordID: String? = nil,
+//        contents: [ClipboardItemContent]
+//    ) {
+//        self.id = id
+//        self.timestamp = timestamp
+//        self.updatedDate = updatedDate
+//        self.isRemoved = isRemoved
+//        self.cloudKitRecordID = cloudKitRecordID
+//        self.contents = contents
+//    }
     
-    init(managedObject: ClipboardItemMO) {
-        self.id = managedObject.id ?? ""
-        self.timestamp = managedObject.timestamp ?? Date()
-        self.updatedDate = managedObject.updatedDate ?? Date()
-        self.isRemoved = managedObject.isRemoved
-        self.cloudKitRecordID = managedObject.cloudKitRecordID
-        self.contents = [] // Will be populated separately
-    }
+//    init(managedObject: ClipboardItemMO) {
+//        self.id = managedObject.id ?? ""
+//        self.timestamp = managedObject.timestamp ?? Date()
+//        self.updatedDate = managedObject.updatedDate ?? Date()
+//        self.isRemoved = managedObject.isRemoved
+//        self.cloudKitRecordID = managedObject.cloudKitRecordID
+//        self.contents = [] // Will be populated separately
+//    }
     
-    init?(from record: CKRecord) {
-        guard
-            let id = record[RecordKeys.ClipboardItem.id] as? String,
-            let timestamp = record[RecordKeys.ClipboardItem.timestamp] as? Date,
-            let updatedDate = record[RecordKeys.ClipboardItem.updatedDate] as? Date,
-            let isRemoved = record[RecordKeys.ClipboardItem.isRemoved] as? Bool
-        else { return nil }
-        
-        self.id = id
-        self.timestamp = timestamp
-        self.updatedDate = updatedDate
-        self.isRemoved = isRemoved
-        self.cloudKitRecordID = record.recordID.recordName
-        self.ckData = record.encodedSystemFields
-        self.contents = [] // Will be populated separately
-    }
+//    init?(from record: CKRecord) {
+//        guard
+//            let id = record[RecordKeys.ClipboardItem.id] as? String,
+//            let timestamp = record[RecordKeys.ClipboardItem.timestamp] as? Date,
+//            let updatedDate = record[RecordKeys.ClipboardItem.updatedDate] as? Date,
+//            let isRemoved = record[RecordKeys.ClipboardItem.isRemoved] as? Bool
+//        else { return nil }
+//        
+//        self.id = id
+//        self.timestamp = timestamp
+//        self.updatedDate = updatedDate
+//        self.isRemoved = isRemoved
+//        self.cloudKitRecordID = record.recordID.recordName
+//        self.ckData = record.encodedSystemFields
+//        self.contents = [] // Will be populated separately
+//    }
 }
 
 // MARK: - ClipboardItemContent
@@ -172,9 +174,11 @@ extension ClipboardItemContent {
         self.cloudKitRecordID = managedObject.cloudKitRecordID
     }
     
-    func record() -> CKRecord {
+    func recordLegacy() -> CKRecord {
         CKRecord(self)
     }
+    
+    var record: CKRecord { recordLegacy() }
     
     init?(from record: CKRecord) {
         guard
@@ -199,45 +203,45 @@ extension ClipboardItemContent {
 }
 
 // MARK: - ClipboardItem
-extension ClipboardItem: Syncable {
-    func record() -> CKRecord {
-        let recordID = CKRecord.ID(recordName: id, zoneID: SyncConstants.customZoneID)
-        let record = CKRecord(recordType: Self.recordType, recordID: recordID)
-        recordKeys.forEach { record[$0] = $1 }
-        return record
-    }
+//extension ClipboardItem: Syncable {
+//    func record() -> CKRecord {
+//        let recordID = CKRecord.ID(recordName: id, zoneID: SyncConstants.customZoneID)
+//        let record = CKRecord(recordType: Self.recordType, recordID: recordID)
+//        recordKeys.forEach { record[$0] = $1 }
+//        return record
+//    }
     
-    init(record: CKRecord) throws {
-        self.id = record.recordID.recordName
-        self.ckData = record.encodedSystemFields
-        
-        guard
-            let timestamp = record[RecordKeys.ClipboardItem.timestamp] as? Date,
-            let updatedDate = record[RecordKeys.ClipboardItem.updatedDate] as? Date,
-            let isRemoved = record[RecordKeys.ClipboardItem.isRemoved] as? Bool
-        else {
-            throw NSError(domain: "ClipboardItem", code: -1,
-                         userInfo: [NSLocalizedDescriptionKey: "Invalid record data"])
-        }
-        
-        self.timestamp = timestamp
-        self.updatedDate = updatedDate
-        self.isRemoved = isRemoved
-        self.cloudKitRecordID = record.recordID.recordName
-        self.contents = [] // Contents will be populated separately
-    }
+//    init(record: CKRecord) throws {
+//        self.id = record.recordID.recordName
+//        self.ckData = record.encodedSystemFields
+//        
+//        guard
+//            let timestamp = record[RecordKeys.ClipboardItem.timestamp] as? Date,
+//            let updatedDate = record[RecordKeys.ClipboardItem.updatedDate] as? Date,
+//            let isRemoved = record[RecordKeys.ClipboardItem.isRemoved] as? Bool
+//        else {
+//            throw NSError(domain: "ClipboardItem", code: -1,
+//                         userInfo: [NSLocalizedDescriptionKey: "Invalid record data"])
+//        }
+//        
+//        self.timestamp = timestamp
+//        self.updatedDate = updatedDate
+//        self.isRemoved = isRemoved
+//        self.cloudKitRecordID = record.recordID.recordName
+//        self.contents = [] // Contents will be populated separately
+//    }
     
-    static func resolveConflict(clientRecord: CKRecord, serverRecord: CKRecord) -> CKRecord {
-        guard
-            let clientDate = clientRecord[RecordKeys.ClipboardItem.updatedDate] as? Date,
-            let serverDate = serverRecord[RecordKeys.ClipboardItem.updatedDate] as? Date
-        else {
-            return serverRecord
-        }
-        
-        return clientDate > serverDate ? clientRecord : serverRecord
-    }
-}
+//    static func resolveConflict(clientRecord: CKRecord, serverRecord: CKRecord) -> CKRecord {
+//        guard
+//            let clientDate = clientRecord[RecordKeys.ClipboardItem.updatedDate] as? Date,
+//            let serverDate = serverRecord[RecordKeys.ClipboardItem.updatedDate] as? Date
+//        else {
+//            return serverRecord
+//        }
+//        
+//        return clientDate > serverDate ? clientRecord : serverRecord
+//    }
+//}
 
 extension ClipboardItemContent: Syncable {
 
