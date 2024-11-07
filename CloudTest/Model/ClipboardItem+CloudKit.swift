@@ -8,10 +8,6 @@
 import Foundation
 import CloudKit
 
-//extension CKRecord.RecordType {
-//    static let clipboardItem = "ClipboardItem"
-//}
-
 fileprivate extension CKRecord.FieldKey {
     static let isRemoved = "isRemoved"
 }
@@ -20,13 +16,9 @@ extension ClipboardItem: Syncable {
     struct RecordError: LocalizedError {
         var localizedDescription: String
 
-        static func missingKey(_ key: RecordKey) -> RecordError {
-            RecordError(localizedDescription: "Missing required key \(key.rawValue)")
+        static func missingKey(_ key: CKRecord.FieldKey) -> RecordError {
+            RecordError(localizedDescription: "Missing required key \(key)")
         }
-    }
-    
-    enum RecordKey: CKRecord.FieldKey {
-        case isRemoved
     }
     
     var recordID: CKRecord.ID {
@@ -43,7 +35,7 @@ extension ClipboardItem: Syncable {
         fatalError("Should not be called")
     }
 
-    init(record: CKRecord) throws {
+    init(record: CKRecord, configure: ((inout Self) -> Void)? = nil) throws {
         guard let isRemoved = record[.isRemoved] as? Bool else {
             throw RecordError.missingKey(.isRemoved)
         }
@@ -54,6 +46,7 @@ extension ClipboardItem: Syncable {
         self.updatedDate = record.modificationDate ?? Date()
         self.contents = [] // TODO: FixMe
         self.cloudKitRecordID = record.recordID.recordName
+        configure?(&self)
     }
     
     static func resolveConflict(clientRecord: CKRecord, serverRecord: CKRecord) -> CKRecord {
