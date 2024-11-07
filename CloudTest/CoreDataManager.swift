@@ -452,24 +452,13 @@ class CoreDataManager {
                     // Convert to value types and fetch their contents
                     var items: [ClipboardItem] = []
                     for managedObject in managedObjects {
-                        var item = ClipboardItem(managedObject: managedObject)
-                        
                         // Fetch contents for this item
                         let contentsFetchRequest: NSFetchRequest<ClipboardItemContentMO> = ClipboardItemContentMO.fetchRequest()
                         contentsFetchRequest.predicate = NSPredicate(format: "clipboardItemId == %@ AND isRemoved == NO", managedObject.id ?? "")
                         
-                        let contentManagedObjects = try context.fetch(contentsFetchRequest)
-                        let contents = contentManagedObjects.map { ClipboardItemContent(managedObject: $0) }
+                        let contentMOs = try context.fetch(contentsFetchRequest)
                         
-                        // Create new item with contents
-                        item = ClipboardItem(
-                            id: item.id,
-                            timestamp: item.timestamp,
-                            updatedDate: item.updatedDate,
-                            isRemoved: item.isRemoved,
-                            cloudKitRecordID: item.cloudKitRecordID,
-                            contents: contents
-                        )
+                        let item = ClipboardItem(managedObject: managedObject, contents: contentMOs)
                         
                         items.append(item)
                     }
