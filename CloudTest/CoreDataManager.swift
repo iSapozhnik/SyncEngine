@@ -132,9 +132,9 @@ class CoreDataManager {
 //                    Task {
 //                        do {
 //                            // First upload all content items
-                            for content in contentItems {
-                                syncEngine?.upload(content)
-                            }
+//                            for content in contentItems {
+//                            }
+                    syncEngine?.uploadAnys(contentItems)
 //                            // Then upload the main item with references to contents
                             syncEngine?.upload(item)
                             continuation.resume(returning: true)
@@ -285,6 +285,7 @@ class CoreDataManager {
             do {
 //                try await eraseLocalStorage()
                 let storedItems = try await fetchClipboardItems()
+                let storedContent = storedItems.flatMap(\.contents)
                 let syncEngine = SyncEngine(
                     defaults: UserDefaults.standard,
                     initialModels: storedItems
@@ -321,7 +322,7 @@ class CoreDataManager {
     }
     
     func processSubscriptionNotification(with userInfo: [AnyHashable : Any]) {
-        CloudKitSyncEngine.shared.processSubscriptionNotification(with: userInfo)
+        syncEngine?.processSubscriptionNotification(with: userInfo)
     }
     
     @objc private func storeRemoteChange(_ notification: Notification) {
