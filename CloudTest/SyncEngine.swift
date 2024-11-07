@@ -24,9 +24,27 @@ public struct SyncConstants {
 
 }
 
-extension CKRecord.RecordType {
-    static let recipe = "Recipe"
-}
+//extension Error {
+//    var isCloudKitConflict: Bool {
+//        guard let ckError = self as? CKError else { return false }
+//        return ckError.code == .serverRecordChanged
+//    }
+//    
+//    @discardableResult
+//    func retryCloudKitOperationIfPossible(_ log: OSLog, with block: @escaping () -> Void) -> Bool {
+//        guard let ckError = self as? CKError else { return false }
+//        
+//        switch ckError.code {
+//        case .networkFailure, .networkUnavailable, .serverResponseLost, .serviceUnavailable, .zoneBusy:
+//            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+//                block()
+//            }
+//            return true
+//        default:
+//            return false
+//        }
+//    }
+//}
 
 final class SyncEngine<Model: Syncable> {
 
@@ -556,4 +574,60 @@ final class SyncEngine<Model: Syncable> {
         didDeleteModels(deletedIdentifiers)
     }
 
+    /// Upload any Syncable type
+    func uploadAny<T: Syncable>(_ model: T) {
+        os_log("%{public}@", log: log, type: .debug, #function)
+        uploadRecords([model.record()])
+    }
+    
+    func uploadAnys<T: Syncable>(_ models: [T]) {
+        os_log("%{public}@", log: log, type: .debug, #function)
+        uploadRecords(models.map { $0.record() })
+    }
+    
+    /// Delete any Syncable type
+    func deleteAny<T: Syncable>(_ model: T) {
+        os_log("%{public}@", log: log, type: .debug, #function)
+        
+        let recordID = CKRecord.ID(recordName: model.id, zoneID: SyncConstants.customZoneID)
+        
+        let operation = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: [recordID])
+        
+        operation.modifyRecordsCompletionBlock = { [weak self] _, _, error in
+            guard let self = self else { return }
+            
+            if let error = error {
+                os_log("Failed to delete record: %{public}@", log: self.log, type: .error, String(describing: error))
+                error.retryCloudKitOperationIfPossible(self.log) { self.deleteAny(model) }
+            } else {
+                os_log("Successfully deleted record", log: self.log, type: .info)
+                DispatchQueue.main.async {
+                    self.didDeleteModels([model.id])
+                }
+            }
+        }
+        
+        operation.qualityOfService = .userInitiated
+        operation.database = privateDatabase
+        
+        cloudOperationQueue.addOperation(operation)
+    }
+    
+    /// Handle updates for any Syncable type
+    private func handleUpdateForAnyType<T: Syncable>(_ record: CKRecord) throws -> T? {
+        do {
+            let model = try T(record: record)
+            return model
+        } catch {
+            os_log("Error decoding model from record: %{public}@", log: self.log, type: .error, String(describing: error))
+            return nil
+        }
+    }
+
+}
+
+extension CKRecord {
+    func decode<T: Syncable>() throws -> T {
+        return try T(record: self)
+    }
 }
