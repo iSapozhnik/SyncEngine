@@ -10,6 +10,7 @@ import CloudKit
 
 fileprivate extension CKRecord.FieldKey {
     static let isRemoved = "isRemoved"
+    static let contents = "contents"
 }
 
 extension ClipboardItem: Syncable {
@@ -28,6 +29,21 @@ extension ClipboardItem: Syncable {
     var record: CKRecord {
         let r = CKRecord(recordType: Self.recordType, recordID: recordID)
         r[.isRemoved] = isRemoved
+        
+        if !contents.isEmpty {
+            let contentReferences = contents.map { content -> CKRecord.Reference in
+                let contentRecordID = CKRecord.ID(
+                    recordName: content.id,
+                    zoneID: SyncConstants.customZoneID
+                )
+                return CKRecord.Reference(
+                    recordID: contentRecordID,
+                    action: .deleteSelf
+                )
+            }
+            r[.contents] = contentReferences as NSArray
+        }
+        
         return r
     }
     
@@ -50,13 +66,26 @@ extension ClipboardItem: Syncable {
     }
     
     static func resolveConflict(clientRecord: CKRecord, serverRecord: CKRecord) -> CKRecord {
-        guard
-            let clientDate = clientRecord[RecordKeys.ClipboardItem.updatedDate] as? Date,
-            let serverDate = serverRecord[RecordKeys.ClipboardItem.updatedDate] as? Date
-        else {
-            return serverRecord
-        }
+//        guard
+//            let clientDate = clientRecord[RecordKeys.ClipboardItem.updatedDate] as? Date,
+//            let serverDate = serverRecord[RecordKeys.ClipboardItem.updatedDate] as? Date
+//        else {
+//            return serverRecord
+//        }
+//
+//        return clientDate > serverDate ? clientRecord : serverRecord
         
-        return clientDate > serverDate ? clientRecord : serverRecord
+        
+        // Custom logic for resolving conflicts.
+        // In this example, the client values will always overwrite all server values.
+        //
+        // The server record has the latest changeTag and must be returned.
+
+        // Merge all client record keys/values into the server record
+        for key in clientRecord.allKeys() {
+            serverRecord[key] = clientRecord[key]
+        }
+
+        return serverRecord
     }
 }
