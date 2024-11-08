@@ -160,7 +160,7 @@ class CloudKitSyncEngine {
         record["id"] = item.id
         record["timestamp"] = item.timestamp
 //        record["modificationDate"] = item.modificationDate
-        record["isRemoved"] = item.isRemoved
+    
         
         return record
     }
@@ -179,7 +179,7 @@ class CloudKitSyncEngine {
         record["clipboardItemId"] = content.clipboardItemId
         record["timestamp"] = content.timestamp
 //        record["modificationDate"] = content.modificationDate
-        record["isRemoved"] = content.isRemoved
+//        record["isRemoved"] = content.isRemoved
         record["typeIdentifier"] = content.typeIdentifier
         
         // Handle large data using CKAsset if needed

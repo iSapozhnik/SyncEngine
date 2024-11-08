@@ -12,14 +12,14 @@ import os.log
 
 public struct SyncConstants {
 
-    public static let containerIdentifier = "iCloud.com.isapozhnik.CloudTest"
+    public static let containerIdentifier = "iCloud.com.isapozhnik.CloudTest0"
 
 //    public static let appGroup = "8C7439RJLG.group.codes.rambo.CloudKitchenSink20"
 
     public static let subsystemName = "com.isapozhnik.CloudTest"
 
     public static let customZoneID: CKRecordZone.ID = {
-        CKRecordZone.ID(zoneName: "CustomZone", ownerName: CKCurrentUserDefaultName)
+        CKRecordZone.ID(zoneName: "CustomZone0", ownerName: CKCurrentUserDefaultName)
     }()
 
 }
@@ -343,17 +343,17 @@ final class SyncEngine<Model: Syncable> {
     private func uploadRecords(_ parentRecords: [CKRecord]) {
         guard !parentRecords.isEmpty else { return }
         var records: [CKRecord] = parentRecords
-        for record in parentRecords {
-            let recordID = CKRecord.ID(recordName: UUID().uuidString, zoneID: SyncConstants.customZoneID)
-            let whistleRecord = CKRecord(recordType: "Suggestions", recordID: recordID)
-            let id = CKRecord.ID(recordName: record.recordID.recordName, zoneID: SyncConstants.customZoneID)
-
-            let reference = CKRecord.Reference(recordID: id, action: .deleteSelf)
-            whistleRecord["text"] = "Some text" as CKRecordValue
-            whistleRecord["parent"] = reference as CKRecordValue
-            
-            records.append(whistleRecord)
-        }
+//        for record in parentRecords {
+//            let recordID = CKRecord.ID(recordName: UUID().uuidString, zoneID: SyncConstants.customZoneID)
+//            let whistleRecord = CKRecord(recordType: "Suggestions", recordID: recordID)
+//            let id = CKRecord.ID(recordName: record.recordID.recordName, zoneID: SyncConstants.customZoneID)
+//
+//            let reference = CKRecord.Reference(recordID: id, action: .deleteSelf)
+//            whistleRecord["text"] = "Some text" as CKRecordValue
+//            whistleRecord["parent"] = reference as CKRecordValue
+//            
+//            records.append(whistleRecord)
+//        }
         
 
         os_log("%{public}@ with %d record(s)", log: log, type: .debug, #function, records.count)
@@ -600,6 +600,8 @@ final class SyncEngine<Model: Syncable> {
     
     func uploadAnys<T: Syncable>(_ models: [T]) {
         os_log("%{public}@", log: log, type: .debug, #function)
+//        buffer.append(contentsOf: models)
+//        models.forEach { buffer.append($0 as Model) }
         uploadRecords(models.map { $0.record })
     }
     

@@ -9,8 +9,8 @@ import Foundation
 import CloudKit
 
 fileprivate extension CKRecord.FieldKey {
-    static let isRemoved = "isRemoved"
     static let contents = "contents"
+    static let id = "id"
 }
 
 extension ClipboardItem: Syncable {
@@ -22,18 +22,13 @@ extension ClipboardItem: Syncable {
         }
     }
     
-    var recordID: CKRecord.ID {
-        CKRecord.ID(recordName: id, zoneID: SyncConstants.customZoneID)
-    }
-    
     var record: CKRecord {
         let r = CKRecord(recordType: Self.recordType, recordID: recordID)
-        r[.isRemoved] = isRemoved
-        
+        r[.id] = id
         if !contents.isEmpty {
-            let contentReferences = contents.map { content -> CKRecord.Reference in
+            let contentReferences = contents.map { clipboardItemContent -> CKRecord.Reference in
                 let contentRecordID = CKRecord.ID(
-                    recordName: content.id,
+                    recordName: clipboardItemContent.id,
                     zoneID: SyncConstants.customZoneID
                 )
                 return CKRecord.Reference(
@@ -42,6 +37,11 @@ extension ClipboardItem: Syncable {
                 )
             }
             r[.contents] = contentReferences as NSArray
+            
+//            let reference = CKRecord.Reference(recordID: whistle.recordID, action: .deleteSelf)
+//            let whistleRecord = CKRecord(recordType: "Suggestions")
+//            whistleRecord["text"] = suggestion as CKRecordValue
+//            whistleRecord["owningWhistle"] = reference as CKRecordValue
         }
         
         return r
@@ -52,11 +52,10 @@ extension ClipboardItem: Syncable {
     }
 
     init(record: CKRecord, configure: ((inout Self) -> Void)? = nil) throws {
-        guard let isRemoved = record[.isRemoved] as? Bool else {
-            throw RecordError.missingKey(.isRemoved)
+        guard let id = record[.id] as? String else {
+            throw RecordError.missingKey(.id)
         }
-        self.isRemoved = isRemoved
-        self.id = record.recordID.recordName
+        self.id = id
         self.ckData = record.encodedSystemFields
         self.timestamp = record.creationDate ?? Date()
         self.updatedDate = record.modificationDate ?? Date()
