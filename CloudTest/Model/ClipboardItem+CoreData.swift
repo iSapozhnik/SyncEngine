@@ -30,7 +30,6 @@ extension ClipboardItem {
         self.id = managedObject.id ?? "No id"
         self.timestamp = managedObject.timestamp ?? date
         self.updatedDate = managedObject.updatedDate ?? date
-        self.isRemoved = managedObject.isRemoved
         self.cloudKitRecordID = managedObject.cloudKitRecordID
         self.contents = contents.map { ClipboardItemContent(managedObject: $0) }
     }

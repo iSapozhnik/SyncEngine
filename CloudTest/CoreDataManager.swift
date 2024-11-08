@@ -109,7 +109,7 @@ class CoreDataManager {
                                 data: content.data ?? Data(),
                                 timestamp: date,
                                 updatedDate: date,
-                                isRemoved: content.isRemoved,
+//                                isRemoved: content.isRemoved,
                                 cloudKitRecordID: content.cloudKitRecordID
                             )
                             contentItems.append(contentItem)
@@ -123,7 +123,6 @@ class CoreDataManager {
                         id: clipboardData.identifier,
                         timestamp: date,
                         updatedDate: date,
-                        isRemoved: clipboardItem.isRemoved,
                         cloudKitRecordID: clipboardItem.cloudKitRecordID,
                         contents: contentItems
                     )
@@ -368,7 +367,6 @@ class CoreDataManager {
                             id: managedObject.id ?? "",
                             timestamp: managedObject.timestamp ?? Date(),
                             updatedDate: managedObject.updatedDate ?? Date(),
-                            isRemoved: managedObject.isRemoved,
                             cloudKitRecordID: managedObject.cloudKitRecordID,
                             contents: contents
                         )

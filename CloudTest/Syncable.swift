@@ -1,6 +1,6 @@
 import CloudKit
 
-public protocol Syncable {
+public protocol Syncable: Identifiable {
     var id: String { get }
     var ckData: Data? { get set }
     
@@ -27,5 +27,9 @@ extension Syncable {
 extension Syncable {
     static var recordType: String {
         String(describing: Self.self)
+    }
+    
+    var recordID: CKRecord.ID {
+        CKRecord.ID(recordName: id, zoneID: SyncConstants.customZoneID)
     }
 }
