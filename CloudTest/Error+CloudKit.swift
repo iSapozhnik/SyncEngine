@@ -10,13 +10,28 @@ import Foundation
 import CloudKit
 import os.log
 
+public struct ConflictData {
+    let localRecord: CKRecord
+    let remoteRecord: CKRecord
+}
+
 public extension Error {
+    typealias Conflict = (hasConflict: Bool, conflictData: ConflictData?)
 
     /// Whether this error is a CloudKit server record changed error, representing a record conflict
-    var isCloudKitConflict: Bool {
-        let effectiveError = self as? CKError
+    var isCloudKitConflict: Conflict {
+        guard let effectiveError = self as? CKError else { return (hasConflict: false, conflictData: nil) }
 
-        return effectiveError?.code == CKError.Code.serverRecordChanged
+        if effectiveError.code == CKError.Code.serverRecordChanged {
+            let localRecord = effectiveError.userInfo[CKRecordChangedErrorClientRecordKey] as? CKRecord
+            let remoteRecord = effectiveError.userInfo[CKRecordChangedErrorServerRecordKey] as? CKRecord
+            
+            // if we can not get records from the error - we can not resolve the conflict 🤷🏼
+            guard let localRecord, let remoteRecord else { return (hasConflict: false, conflictData: nil) }
+            return (hasConflict: true, conflictData: ConflictData(localRecord: localRecord, remoteRecord: remoteRecord))
+        } else {
+            return (hasConflict: false, conflictData: nil)
+        }
     }
 
     /// Whether this error represents a "zone not found" or a "user deleted zone" error

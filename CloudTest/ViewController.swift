@@ -12,6 +12,7 @@ class ViewController: NSViewController {
     private var observationTask: Task<Void, Never>?
     
     @IBOutlet var textView: NSTextView!
+    @IBOutlet weak var progressView: NSProgressIndicator!
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -23,7 +24,10 @@ class ViewController: NSViewController {
     
     private func setupUI() {
         // Add scroll view
-
+        CoreDataManager.shared.progressHandler = { [weak self] progress in
+            guard let self else { return }
+            self.progressView.animator().doubleValue = progress
+        }
     }
     
     private func loadExistingContent() {

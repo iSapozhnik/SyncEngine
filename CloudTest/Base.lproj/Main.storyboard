@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <document type="com.apple.InterfaceBuilder3.Cocoa.Storyboard.XIB" version="3.0" toolsVersion="23094" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" initialViewController="B8D-0N-5wS">
     <dependencies>
+        <deployment identifier="macosx"/>
         <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="23094"/>
         <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
     </dependencies>
@@ -710,18 +711,18 @@
                         <autoresizingMask key="autoresizingMask"/>
                         <subviews>
                             <scrollView borderType="none" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" hasHorizontalScroller="NO" translatesAutoresizingMaskIntoConstraints="NO" id="m5z-hj-aIJ">
-                                <rect key="frame" x="0.0" y="0.0" width="480" height="270"/>
+                                <rect key="frame" x="0.0" y="16" width="480" height="254"/>
                                 <clipView key="contentView" drawsBackground="NO" id="pgX-Qq-IvX">
-                                    <rect key="frame" x="0.0" y="0.0" width="465" height="270"/>
+                                    <rect key="frame" x="0.0" y="0.0" width="465" height="254"/>
                                     <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                     <subviews>
                                         <textView wantsLayer="YES" importsGraphics="NO" richText="NO" verticallyResizable="YES" spellingCorrection="YES" smartInsertDelete="YES" id="LV5-JF-6Xn">
-                                            <rect key="frame" x="0.0" y="0.0" width="465" height="270"/>
+                                            <rect key="frame" x="0.0" y="0.0" width="465" height="254"/>
                                             <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                             <color key="textColor" name="textColor" catalog="System" colorSpace="catalog"/>
                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                                            <size key="minSize" width="465" height="270"/>
-                                            <size key="maxSize" width="465" height="10000000"/>
+                                            <size key="minSize" width="465" height="254"/>
+                                            <size key="maxSize" width="480" height="10000000"/>
                                         </textView>
                                     </subviews>
                                 </clipView>
@@ -730,19 +731,27 @@
                                     <autoresizingMask key="autoresizingMask"/>
                                 </scroller>
                                 <scroller key="verticalScroller" verticalHuggingPriority="750" horizontal="NO" id="ACF-3G-hRU">
-                                    <rect key="frame" x="465" y="0.0" width="15" height="270"/>
+                                    <rect key="frame" x="465" y="0.0" width="15" height="254"/>
                                     <autoresizingMask key="autoresizingMask"/>
                                 </scroller>
                             </scrollView>
+                            <progressIndicator maxValue="1" style="bar" translatesAutoresizingMaskIntoConstraints="NO" id="CTq-C8-iiz">
+                                <rect key="frame" x="20" y="-1" width="440" height="20"/>
+                            </progressIndicator>
                         </subviews>
                         <constraints>
+                            <constraint firstItem="CTq-C8-iiz" firstAttribute="centerX" secondItem="m2S-Jp-Qdl" secondAttribute="centerX" id="3md-6H-FDo"/>
                             <constraint firstItem="m5z-hj-aIJ" firstAttribute="leading" secondItem="m2S-Jp-Qdl" secondAttribute="leading" id="6IQ-os-VRg"/>
-                            <constraint firstAttribute="bottom" secondItem="m5z-hj-aIJ" secondAttribute="bottom" id="hoE-fj-g49"/>
+                            <constraint firstAttribute="trailing" secondItem="CTq-C8-iiz" secondAttribute="trailing" constant="20" symbolic="YES" id="6he-pV-Bgi"/>
+                            <constraint firstAttribute="bottom" secondItem="m5z-hj-aIJ" secondAttribute="bottom" constant="16" id="hoE-fj-g49"/>
                             <constraint firstAttribute="trailing" secondItem="m5z-hj-aIJ" secondAttribute="trailing" id="jGZ-Zt-tFU"/>
+                            <constraint firstAttribute="bottom" secondItem="CTq-C8-iiz" secondAttribute="bottom" id="nFh-hp-1IA"/>
                             <constraint firstItem="m5z-hj-aIJ" firstAttribute="top" secondItem="m2S-Jp-Qdl" secondAttribute="top" id="uox-W5-ZrG"/>
+                            <constraint firstItem="CTq-C8-iiz" firstAttribute="leading" secondItem="m2S-Jp-Qdl" secondAttribute="leading" constant="20" symbolic="YES" id="wxz-8r-cwB"/>
                         </constraints>
                     </view>
                     <connections>
+                        <outlet property="progressView" destination="CTq-C8-iiz" id="OA7-1v-sRC"/>
                         <outlet property="textView" destination="LV5-JF-6Xn" id="eOz-2b-PPH"/>
                     </connections>
                 </viewController>
