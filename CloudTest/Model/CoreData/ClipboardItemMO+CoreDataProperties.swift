@@ -2,7 +2,7 @@
 //  ClipboardItemMO+CoreDataProperties.swift
 //  CloudTest
 //
-//  Created by Ivan Sapozhnik on 06.11.24.
+//  Created by Ivan Sapozhnik on 09.11.24.
 //
 //
 
@@ -19,9 +19,10 @@ extension ClipboardItemMO {
     @NSManaged public var cloudKitRecordID: String?
     @NSManaged public var id: String?
     @NSManaged public var isRemoved: Bool
-    @NSManaged public var updatedDate: Date?
     @NSManaged public var timestamp: Date?
     @NSManaged public var typeIdentifiers: String?
+    @NSManaged public var updatedDate: Date?
+    @NSManaged public var ckData: Data?
 
 }
 

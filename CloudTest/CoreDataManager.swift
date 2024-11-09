@@ -293,8 +293,15 @@ class CoreDataManager {
                     }
                     syncEngine.didUpdateModels = { [weak self] models in
                         guard let self else { return }
-                        logger.debug("didUpdateModels: \(models)")
-                        //                    self?.updateAfterSync(recipes)
+                        let clipboardItems = models.compactMap { $0 as? ClipboardItem }
+                        let contentItems = models.compactMap { $0 as? ClipboardItemContent }
+
+//                        logger.debug("Updated ClipboardItems: \(clipboardItems)")
+//                        logger.debug("Updated ClipboardItemContents: \(contentItems)")
+                        Task {
+                            try await self.processClipboardItemCloudKitRecords(clipboardItems)
+                            try await self.processClipboardItemContentCloudKitRecords(contentItems)
+                        }
                     }
                     
                     syncEngine.didDeleteModels = { [weak self] identifiers in
@@ -374,6 +381,69 @@ class CoreDataManager {
                     }
                     
                     continuation.resume(returning: items)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    
+    func processClipboardItemCloudKitRecords(_ clipboatdItems: [ClipboardItem]) async throws {
+        return try await withCheckedThrowingContinuation { continuation in
+            let context = newBackgroundContext()
+            
+            context.performAndWait {
+                do {
+                    for clipboatdItem in clipboatdItems where clipboatdItem.cloudKitRecordID?.isEmpty == false {
+                        let fetchRequest: NSFetchRequest<ClipboardItemMO> = ClipboardItemMO.fetchRequest()
+                        fetchRequest.predicate = NSPredicate(
+                            format: "id == %@ OR cloudKitRecordID == %@",
+                            clipboatdItem.id,
+                            clipboatdItem.cloudKitRecordID!
+                        )
+                        
+                        if let existingItem = try context.fetch(fetchRequest).first {
+                            existingItem.ckData = clipboatdItem.ckData
+                            logger.debug("Did update ckData for item id: \(clipboatdItem.id)")
+                        } else {
+                            
+                        }
+                    }
+                    
+                    
+                    
+                    try context.save()
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    
+    func processClipboardItemContentCloudKitRecords(_ clipboatdItemContents: [ClipboardItemContent]) async throws {
+        return try await withCheckedThrowingContinuation { continuation in
+            let context = newBackgroundContext()
+            
+            context.performAndWait {
+                do {
+                    for clipboatdItemContent in clipboatdItemContents {
+                        let fetchRequest: NSFetchRequest<ClipboardItemContentMO> = ClipboardItemContentMO.fetchRequest()
+                        fetchRequest.predicate = NSPredicate(
+                            format: "id == %@",
+                            clipboatdItemContent.id
+                        )
+                        
+                        if let existingItem = try context.fetch(fetchRequest).first {
+                            existingItem.ckData = clipboatdItemContent.ckData
+                            logger.debug("Did update ckData for itemContent id: \(clipboatdItemContent.id)")
+                        } else {
+                            
+                        }
+                    }
+                    
+                    try context.save()
+                    continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)
                 }
