@@ -459,6 +459,7 @@ final class SyncEngine {
         }
 
         DispatchQueue.main.async {
+            guard models.isEmpty == false else { return }
             self.didUpdateModels(models)
 //            self.buffer = []
         }

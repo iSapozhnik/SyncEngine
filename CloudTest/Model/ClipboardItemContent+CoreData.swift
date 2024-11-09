@@ -10,6 +10,7 @@ import Foundation
 extension ClipboardItemContent {
     init(managedObject: ClipboardItemContentMO) {
         self.id = managedObject.id ?? ""
+        self.ckData = managedObject.ckData
         self.clipboardItemId = managedObject.clipboardItemId ?? ""
         self.typeIdentifier = managedObject.typeIdentifier ?? ""
         self.data = managedObject.data ?? Data()

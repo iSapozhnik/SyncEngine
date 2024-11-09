@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="23231" systemVersion="24B83" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
     <entity name="ClipboardItemContentMO" representedClassName="ClipboardItemContentMO" syncable="YES">
+        <attribute name="ckData" optional="YES" attributeType="Binary"/>
         <attribute name="clipboardItemId" optional="YES" attributeType="String"/>
         <attribute name="cloudKitRecordID" optional="YES" attributeType="String"/>
         <attribute name="data" optional="YES" attributeType="Binary"/>
@@ -11,6 +12,7 @@
         <attribute name="updatedDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
     </entity>
     <entity name="ClipboardItemMO" representedClassName="ClipboardItemMO" syncable="YES">
+        <attribute name="ckData" optional="YES" attributeType="Binary"/>
         <attribute name="cloudKitRecordID" optional="YES" attributeType="String"/>
         <attribute name="id" optional="YES" attributeType="String"/>
         <attribute name="isRemoved" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>

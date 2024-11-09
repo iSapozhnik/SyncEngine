@@ -28,6 +28,7 @@ extension ClipboardItem {
     init(managedObject: ClipboardItemMO, contents: [ClipboardItemContentMO]) {
         let date = Date()
         self.id = managedObject.id ?? "No id"
+        self.ckData = managedObject.ckData
         self.timestamp = managedObject.timestamp ?? date
         self.updatedDate = managedObject.updatedDate ?? date
         self.cloudKitRecordID = managedObject.cloudKitRecordID
