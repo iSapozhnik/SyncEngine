@@ -28,10 +28,10 @@ final class SyncEngine {
     private var typeRegistry: [String: any Syncable.Type] = [:]
     private var initializerRegistry: [String: (CKRecord) throws -> any Syncable] = [:]
 
-    
     let log = OSLog(subsystem: SyncConstants.subsystemName, category: String(describing: SyncEngine.self))
 
     private let defaults: UserDefaults
+    private let tokenManager: TokenManager
 
     private(set) lazy var container: CKContainer = {
         CKContainer(identifier: SyncConstants.containerIdentifier)
@@ -56,6 +56,7 @@ final class SyncEngine {
     init(defaults: UserDefaults, initialModels: [any Syncable]) {
         self.defaults = defaults
         self.buffer = initialModels
+        self.tokenManager = TokenManager(defaults: defaults)
     }
     
     func requestPermission() async throws -> Bool {
@@ -467,39 +468,7 @@ final class SyncEngine {
 
     // MARK: - Remote change tracking
 
-    private lazy var privateChangeTokenKey: String = {
-        return "TOKEN-\(SyncConstants.customZoneID.zoneName)"
-    }()
-
-    private var privateChangeToken: CKServerChangeToken? {
-        get {
-            guard let data = defaults.data(forKey: privateChangeTokenKey) else { return nil }
-            guard !data.isEmpty else { return nil }
-
-            do {
-                let token = try NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: data)
-
-                return token
-            } catch {
-                os_log("Failed to decode CKServerChangeToken from defaults key privateChangeToken", log: log, type: .error)
-                return nil
-            }
-        }
-        set {
-            guard let newValue = newValue else {
-                defaults.setValue(Data(), forKey: privateChangeTokenKey)
-                return
-            }
-
-            do {
-                let data = try NSKeyedArchiver.archivedData(withRootObject: newValue, requiringSecureCoding: true)
-
-                defaults.set(data, forKey: privateChangeTokenKey)
-            } catch {
-                os_log("Failed to encode private change token: %{public}@", log: self.log, type: .error, String(describing: error))
-            }
-        }
-    }
+    
 
     func fetchRemoteChanges() {
         os_log("%{public}@", log: log, type: .debug, #function)
@@ -508,11 +477,9 @@ final class SyncEngine {
         var deletedRecordIDs: [CKRecord.ID] = []
 
         let operation = CKFetchRecordZoneChangesOperation()
-
-        let token: CKServerChangeToken? = privateChangeToken
-
+        
         let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration(
-            previousServerChangeToken: token,
+            previousServerChangeToken: tokenManager.changeToken,
             resultsLimit: nil,
             desiredKeys: nil
         )
@@ -523,15 +490,15 @@ final class SyncEngine {
         operation.fetchAllChanges = true
 
         operation.recordZoneChangeTokensUpdatedBlock = { [weak self] _, changeToken, _ in
-            guard let self = self else { return }
+            guard let self else { return }
 
             guard let changeToken = changeToken else { return }
 
-            self.privateChangeToken = changeToken
+            tokenManager.changeToken = changeToken
         }
 
         operation.recordZoneFetchCompletionBlock = { [weak self] _, token, _, _, error in
-            guard let self = self else { return }
+            guard let self else { return }
 
             if let error = error as? CKError {
                 os_log("Failed to fetch record zone changes: %{public}@",
@@ -542,7 +509,7 @@ final class SyncEngine {
                 if error.code == .changeTokenExpired {
                     os_log("Change token expired, resetting token and trying again", log: self.log, type: .error)
 
-                    self.privateChangeToken = nil
+                    tokenManager.changeToken = nil
 
                     DispatchQueue.main.async { self.fetchRemoteChanges() }
                 } else {
@@ -551,7 +518,7 @@ final class SyncEngine {
             } else {
                 os_log("Commiting new change token", log: self.log, type: .debug)
 
-                self.privateChangeToken = token
+                tokenManager.changeToken = token
             }
         }
 
