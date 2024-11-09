@@ -17,7 +17,9 @@ class CoreDataManager {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "CoreDataManager", category: "CoreData")
 
     static let shared = CoreDataManager()
-    private var syncEngine: SyncEngine<ClipboardItem>?
+    private var syncEngine: SyncEngine?
+    
+    var progressHandler: ((Double) -> Void)? = nil
     
     init() {
         container = NSPersistentContainer(name: "CloudTest")
@@ -128,21 +130,12 @@ class CoreDataManager {
                     )
                     
                     // Upload to CloudKit
-//                    Task {
-//                        do {
-//                            // First upload all content items
-//                            for content in contentItems {
-//                            }
-                    syncEngine?.uploadAnys(contentItems)
-//                            // Then upload the main item with references to contents
-                            syncEngine?.upload(item)
-                            continuation.resume(returning: true)
-//                        } catch {
-//                            continuation.resume(throwing: ClipboardError.saveFailed(error))
-//                        }
-//                    }
+                    let uploads = ([item as any Syncable] + contentItems as [any Syncable])
                     
-//                    continuation.resume(returning: true)
+                    syncEngine?.uploadAnys(contentItems)
+                    // Then upload the main item with references to contents
+                    syncEngine?.upload(item)
+                    continuation.resume(returning: true)
                     
                 } catch {
                     continuation.resume(throwing: ClipboardError.saveFailed(error))
@@ -289,7 +282,15 @@ class CoreDataManager {
                     defaults: UserDefaults.standard,
                     initialModels: storedItems
                 )
+                syncEngine.register(ClipboardItem.self)
+                syncEngine.register(ClipboardItemContent.self)
+                
                 if try await syncEngine.requestPermission() {
+                    syncEngine.progressHandler = { [weak self] progress in
+                        guard let self else { return }
+                        self.progressHandler?(progress)
+                        logger.debug("progress: \(progress)%")
+                    }
                     syncEngine.didUpdateModels = { [weak self] models in
                         guard let self else { return }
                         logger.debug("didUpdateModels: \(models)")

@@ -24,30 +24,11 @@ public struct SyncConstants {
 
 }
 
-//extension Error {
-//    var isCloudKitConflict: Bool {
-//        guard let ckError = self as? CKError else { return false }
-//        return ckError.code == .serverRecordChanged
-//    }
-//    
-//    @discardableResult
-//    func retryCloudKitOperationIfPossible(_ log: OSLog, with block: @escaping () -> Void) -> Bool {
-//        guard let ckError = self as? CKError else { return false }
-//        
-//        switch ckError.code {
-//        case .networkFailure, .networkUnavailable, .serverResponseLost, .serviceUnavailable, .zoneBusy:
-//            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-//                block()
-//            }
-//            return true
-//        default:
-//            return false
-//        }
-//    }
-//}
+final class SyncEngine {
+    private var typeRegistry: [String: any Syncable.Type] = [:]
+    private var initializerRegistry: [String: (CKRecord) throws -> any Syncable] = [:]
 
-final class SyncEngine<Model: Syncable> {
-
+    
     let log = OSLog(subsystem: SyncConstants.subsystemName, category: String(describing: SyncEngine.self))
 
     private let defaults: UserDefaults
@@ -64,15 +45,15 @@ final class SyncEngine<Model: Syncable> {
         return "\(SyncConstants.customZoneID.zoneName).subscription"
     }()
 
-    private var buffer: [Model]
+    private var buffer: [any Syncable]
 
     /// Called after models are updated with CloudKit data.
-    var didUpdateModels: ([Model]) -> Void = { _ in }
+    var didUpdateModels: ([any Syncable]) -> Void = { _ in }
 
     /// Called when models are deleted remotely.
     var didDeleteModels: ([String]) -> Void = { _ in }
 
-    init(defaults: UserDefaults, initialModels: [Model]) {
+    init(defaults: UserDefaults, initialModels: [any Syncable]) {
         self.defaults = defaults
         self.buffer = initialModels
     }
@@ -85,7 +66,23 @@ final class SyncEngine<Model: Syncable> {
     private let cloudQueue = DispatchQueue(label: "SyncEngine.Cloud", qos: .userInitiated)
 
     // MARK: - Setup boilerplate
-
+    
+    func register<T: Syncable>(_ type: T.Type) {
+        typeRegistry[T.recordType] = type
+        initializerRegistry[T.recordType] = { record in
+            try T(record: record, configure: nil)
+        }
+    }
+    
+    private func getType(for recordType: String) -> (any Syncable.Type)? {
+        return typeRegistry[recordType]
+    }
+    
+    private func createInstance(from record: CKRecord) throws -> (any Syncable)? {
+        guard let initializer = initializerRegistry[record.recordType] else { return nil }
+        return try initializer(record)
+    }
+    
     func start() {
         prepareCloudEnvironment { [weak self] in
             guard let self = self else { return }
@@ -106,6 +103,15 @@ final class SyncEngine<Model: Syncable> {
 
         return q
     }()
+
+    private lazy var progress: Progress = {
+        let p = Progress(totalUnitCount: 0)
+        p.isCancellable = true
+        p.isPausable = true
+        return p
+    }()
+
+    var progressHandler: ((Double) -> Void)? = nil
 
     private lazy var createdCustomZoneKey: String = {
         return "CREATEDZONE-\(SyncConstants.customZoneID.zoneName)"
@@ -230,7 +236,7 @@ final class SyncEngine<Model: Syncable> {
         notificationInfo.shouldSendContentAvailable = true
 
         subscription.notificationInfo = notificationInfo
-        subscription.recordType = Model.recordType
+        subscription.recordType = String(describing: (any Syncable).self)
 
         let operation = CKModifySubscriptionsOperation(subscriptionsToSave: [subscription], subscriptionIDsToDelete: nil)
 
@@ -305,7 +311,7 @@ final class SyncEngine<Model: Syncable> {
         uploadRecords(records)
     }
     
-    func upload(_ model: Model) {
+    func upload(_ model: any Syncable) {
         os_log("%{public}@", log: log, type: .debug, #function)
 
         buffer.append(model)
@@ -313,7 +319,7 @@ final class SyncEngine<Model: Syncable> {
         uploadRecords([model.record])
     }
 
-    func delete(_ model: Model) {
+    func delete(_ model: any Syncable) {
         os_log("%{public}@", log: log, type: .debug, #function)
 
         let recordID = CKRecord.ID(recordName: model.id, zoneID: SyncConstants.customZoneID)
@@ -340,61 +346,70 @@ final class SyncEngine<Model: Syncable> {
         cloudOperationQueue.addOperation(operation)
     }
 
-    private func uploadRecords(_ parentRecords: [CKRecord]) {
-        guard !parentRecords.isEmpty else { return }
-        var records: [CKRecord] = parentRecords
-//        for record in parentRecords {
-//            let recordID = CKRecord.ID(recordName: UUID().uuidString, zoneID: SyncConstants.customZoneID)
-//            let whistleRecord = CKRecord(recordType: "Suggestions", recordID: recordID)
-//            let id = CKRecord.ID(recordName: record.recordID.recordName, zoneID: SyncConstants.customZoneID)
-//
-//            let reference = CKRecord.Reference(recordID: id, action: .deleteSelf)
-//            whistleRecord["text"] = "Some text" as CKRecordValue
-//            whistleRecord["parent"] = reference as CKRecordValue
-//            
-//            records.append(whistleRecord)
-//        }
-        
+    private func uploadRecords(_ records: [CKRecord]) {
+        guard !records.isEmpty else { return }
+
+        progress.totalUnitCount += Int64(records.count)
 
         os_log("%{public}@ with %d record(s)", log: log, type: .debug, #function, records.count)
         let operation = CKModifyRecordsOperation(recordsToSave: records, recordIDsToDelete: nil)
-        operation.perRecordCompletionBlock = { [weak self] record, error in
-            guard let self = self else { return }
-
+        
+        var serverRecords: [CKRecord] = []
+        operation.perRecordSaveBlock = { [weak self] recordID, result in
+            guard let self else { return }
+            
             // We're only interested in conflict errors here
-            guard let error = error, error.isCloudKitConflict else { return }
+            guard
+                case .failure(let error) = result,
+                error.isCloudKitConflict.hasConflict,
+                let conflictData = error.isCloudKitConflict.conflictData
+            else {
+                if case .success(let uploadedRecord) = result {
+                    serverRecords.append(uploadedRecord)
+                    progress.completedUnitCount += 1
+                    DispatchQueue.main.async {
+                        self.progressHandler?(Double(self.progress.fractionCompleted))
+                    }
+                }
 
-            os_log("CloudKit conflict with record of type %{public}@", log: self.log, type: .error, record.recordType)
-
-            guard let resolvedRecord = error.resolveConflict(with: Model.resolveConflict) else {
+                return
+            }
+            
+            guard let syncableType = getType(for: conflictData.localRecord.recordType) else {
+                os_log("No type registered for record type: %@", log: log, type: .error, conflictData.localRecord.recordType)
+                uploadRecords([conflictData.localRecord])
+                return
+            }
+            
+            guard let resolvedRecord = error.resolveConflict(with: syncableType.resolveConflict) else {
                 os_log(
                     "Resolving conflict with record of type %{public}@ returned a nil record. Giving up.",
                     log: self.log,
                     type: .error,
-                    record.recordType
+                    conflictData.localRecord.recordType
                 )
                 return
             }
-
-            os_log("Conflict resolved, will retry upload", log: self.log, type: .info)
-
+            
+            os_log("Conflict resolved, will retry upload", log: log, type: .info)
+            
             self.uploadRecords([resolvedRecord])
         }
+        
+        operation.modifyRecordsResultBlock = { [weak self] result in
+            guard let self else { return }
 
-        operation.modifyRecordsCompletionBlock = { [weak self] serverRecords, _, error in
-            guard let self = self else { return }
-
-            if let error = error {
+            switch result {
+            case .failure(let error):
                 os_log("Failed to upload records: %{public}@", log: self.log, type: .error, String(describing: error))
 
                 DispatchQueue.main.async {
                     self.handleUploadError(error, records: records)
                 }
-            } else {
+            case .success:
                 os_log("Successfully uploaded %{public}d record(s)", log: self.log, type: .info, records.count)
 
                 DispatchQueue.main.async {
-                    guard let serverRecords = serverRecords else { return }
                     self.updateLocalModelsAfterUpload(with: serverRecords)
                 }
             }
@@ -434,17 +449,18 @@ final class SyncEngine<Model: Syncable> {
     }
 
     private func updateLocalModelsAfterUpload(with records: [CKRecord]) {
-        let models: [Model] = records.compactMap { (r: CKRecord) -> Model? in
+        let models: [any Syncable] = records.compactMap { (r: CKRecord) -> (any Syncable)? in
             guard var model = buffer.first(where: { $0.id == r.recordID.recordName }) else { return nil }
 
             model.ckData = r.encodedSystemFields
+            buffer.removeAll(where: { $0.id == r.recordID.recordName })
 
             return model
         }
 
         DispatchQueue.main.async {
             self.didUpdateModels(models)
-            self.buffer = []
+//            self.buffer = []
         }
     }
 
@@ -577,9 +593,9 @@ final class SyncEngine<Model: Syncable> {
 
         os_log("Will commit %d changed record(s) and %d deleted record(s) to the database", log: log, type: .info, changedRecords.count, deletedRecordIDs.count)
 
-        let models: [Model] = changedRecords.compactMap { record in
+        let models: [any Syncable] = changedRecords.compactMap { record in
             do {
-                return try Model(record: record)
+                return try createInstance(from: record)
             } catch {
                 os_log("Error decoding model from record: %{public}@", log: self.log, type: .error, String(describing: error))
                 return nil
@@ -598,10 +614,9 @@ final class SyncEngine<Model: Syncable> {
         uploadRecords([model.record])
     }
     
-    func uploadAnys<T: Syncable>(_ models: [T]) {
+    func uploadAnys(_ models: [any Syncable]) {
         os_log("%{public}@", log: log, type: .debug, #function)
-//        buffer.append(contentsOf: models)
-//        models.forEach { buffer.append($0 as Model) }
+        buffer.append(contentsOf: models)
         uploadRecords(models.map { $0.record })
     }
     
@@ -632,22 +647,5 @@ final class SyncEngine<Model: Syncable> {
         
         cloudOperationQueue.addOperation(operation)
     }
-    
-    /// Handle updates for any Syncable type
-    private func handleUpdateForAnyType<T: Syncable>(_ record: CKRecord) throws -> T? {
-        do {
-            let model = try T(record: record)
-            return model
-        } catch {
-            os_log("Error decoding model from record: %{public}@", log: self.log, type: .error, String(describing: error))
-            return nil
-        }
-    }
 
-}
-
-extension CKRecord {
-    func decode<T: Syncable>() throws -> T {
-        return try T(record: self)
-    }
 }
