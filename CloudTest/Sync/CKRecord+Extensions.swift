@@ -16,3 +16,10 @@ extension CKRecord {
         return coder.encodedData
     }
 }
+
+extension CKAsset {
+    var data: Data? {
+        guard let fileURL else { return nil }
+        return try? Data(contentsOf: fileURL)
+    }
+}

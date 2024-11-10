@@ -63,13 +63,10 @@ extension ClipboardItemContent: Syncable {
         guard let clipboardItemId = record[.clipboardItemId] as? String else {
             throw RecordError.missingKey(.clipboardItemId)
         }
-        guard let data = record[.data] as? Data else {
-            throw RecordError.missingKey(.data)
-        }
         self.typeIdentifier = typeIdentifier
         self.clipboardItemId = clipboardItemId
         self.id = id
-        self.data = data
+        self.data = (record[.asset] as? CKAsset)?.data ?? record[.data] as? Data ?? Data()
         self.ckData = record.encodedSystemFields
         self.timestamp = record.creationDate ?? Date()
         self.updatedDate = record.modificationDate ?? Date()

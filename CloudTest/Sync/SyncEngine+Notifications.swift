@@ -19,7 +19,7 @@ extension SyncEngine {
             return false
         }
 
-        guard notification.subscriptionID == privateSubscriptionId else {
+        guard subscriptionManager.shouldHandleSubscriptionID(notification.subscriptionID) else {
             os_log("Not our subscription ID", log: self.log, type: .debug)
             return false
         }
