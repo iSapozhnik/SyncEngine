@@ -129,14 +129,17 @@ final class SubscriptionManager {
                     )
                     return
                 }
-                subscriptionsRegistry[recordType] = nil
+                
                 os_log("Private subscription exists locally, but does not exist in CloudKit: %{public}@.",
                        log: self.log,
                        type: .error,
                        String(describing: error))
-                error.retryCloudKitOperationIfPossible(log) { self.createSubscriptions(for: [recordType]) }
+                if !error.retryCloudKitOperationIfPossible(log, with: { self.createSubscriptions(for: [recordType]) }) {
+                    os_log("Irrecoverable error when checking private subscription, assuming it doesn't exist: %{public}@", log: self.log, type: .error, String(describing: error))
+                    subscriptionsRegistry[recordType] = nil
+                    createSubscriptions(for: [recordType])
+                }
             }
-            
         }
         
         queue.addOperation(operation)
