@@ -30,6 +30,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
         print("didFailToRegisterForRemoteNotificationsWithError \(error.localizedDescription)")
     }
+    
+    func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        let token = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
+        print("didRegisterForRemoteNotificationsWithDeviceToken \(token)")
+    }
 
 //    func windowWillReturnUndoManager(window: NSWindow) -> UndoManager? {
 //        // Returns the NSUndoManager for the application. In this case, the manager returned is that of the managed object context for the application.
