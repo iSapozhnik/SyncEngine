@@ -309,8 +309,6 @@ final class SyncEngine {
 
     // MARK: - Remote change tracking
 
-    
-
     func fetchRemoteChanges() {
         os_log("%{public}@", log: log, type: .debug, #function)
 
@@ -328,7 +326,6 @@ final class SyncEngine {
         )
 
         operation.configurationsByRecordZoneID = [SyncConstants.customZoneID: config]
-
         operation.recordZoneIDs = [SyncConstants.customZoneID]
         operation.fetchAllChanges = true
 
@@ -338,11 +335,16 @@ final class SyncEngine {
 
             tokenManager.changeToken = changeToken
         }
-
-        operation.recordZoneFetchCompletionBlock = { [weak self] _, token, _, _, error in
+        
+        operation.recordZoneFetchResultBlock = { [weak self] recordZoneID, result in
             guard let self else { return }
+            switch result {
+            case .success(let success):
+                os_log("Commiting new change token", log: self.log, type: .debug)
 
-            if let error = error as? CKError {
+                tokenManager.changeToken = success.serverChangeToken
+            case .failure(let error):
+                guard let error = error as? CKError else { return }
                 os_log("Failed to fetch record zone changes: %{public}@",
                        log: self.log,
                        type: .error,
@@ -357,17 +359,15 @@ final class SyncEngine {
                 } else {
                     error.retryCloudKitOperationIfPossible(self.log) { self.fetchRemoteChanges() }
                 }
-            } else {
-                os_log("Commiting new change token", log: self.log, type: .debug)
-
-                tokenManager.changeToken = token
             }
         }
 
         operation.recordWasChangedBlock = { recordID, result in
             switch result {
             case .success(let record):
-                changedRecords.append(record)
+                if !changedRecords.contains(where: { $0.recordID == record.recordID }) {
+                    changedRecords.append(record)
+                }
             case .failure(let error):
                 os_log("There was an error fetching a record: %{public}@",
                        log: self.log,
@@ -410,6 +410,14 @@ final class SyncEngine {
 
         os_log("Will commit %d changed record(s) and %d deleted record(s) to the database", log: log, type: .info, changedRecords.count, deletedRecordIDs.count)
 
+//        let newRecords = changedRecords.filter { record in
+//            !buffer.contains { model in 
+//                guard let modelCKData = model.ckData else { return false }
+//                return model.id == record.recordID.recordName && 
+//                       modelCKData == record.encodedSystemFields
+//            }
+//        }
+
         let models: [any Syncable] = changedRecords.compactMap { record in
             do {
                 return try createInstance(from: record)
@@ -421,8 +429,12 @@ final class SyncEngine {
 
         let deletedIdentifiers = deletedRecordIDs.map { $0.recordName }
 
-        didUpdateModels(models)
-        didDeleteModels(deletedIdentifiers)
+        if !models.isEmpty {
+            didUpdateModels(models)
+        }
+        if !deletedIdentifiers.isEmpty {
+            didDeleteModels(deletedIdentifiers)
+        }
     }
 
     /// Upload any Syncable type
