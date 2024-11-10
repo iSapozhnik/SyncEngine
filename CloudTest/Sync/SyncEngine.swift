@@ -14,8 +14,6 @@ public struct SyncConstants {
 
     public static let containerIdentifier = "iCloud.com.isapozhnik.CloudTest0"
 
-//    public static let appGroup = "8C7439RJLG.group.codes.rambo.CloudKitchenSink20"
-
     public static let subsystemName = "com.isapozhnik.CloudTest"
 
     public static let customZoneID: CKRecordZone.ID = {
@@ -32,6 +30,7 @@ final class SyncEngine {
 
     private let defaults: UserDefaults
     private let tokenManager: TokenManager
+    private(set) var subscriptionManager: SubscriptionManager!
 
     private(set) lazy var container: CKContainer = {
         CKContainer(identifier: SyncConstants.containerIdentifier)
@@ -39,10 +38,6 @@ final class SyncEngine {
 
     private(set) lazy var privateDatabase: CKDatabase = {
         container.privateCloudDatabase
-    }()
-
-    private(set) lazy var privateSubscriptionId: String = {
-        return "\(SyncConstants.customZoneID.zoneName).subscription"
     }()
 
     private var buffer: [any Syncable]
@@ -53,7 +48,10 @@ final class SyncEngine {
     /// Called when models are deleted remotely.
     var didDeleteModels: ([String]) -> Void = { _ in }
 
-    init(defaults: UserDefaults, initialModels: [any Syncable]) {
+    init(
+        defaults: UserDefaults,
+        initialModels: [any Syncable]
+    ) {
         self.defaults = defaults
         self.buffer = initialModels
         self.tokenManager = TokenManager(defaults: defaults)
@@ -86,7 +84,7 @@ final class SyncEngine {
     
     func start() {
         prepareCloudEnvironment { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
 
             os_log("Cloud environment preparation done", log: self.log, type: .debug)
 
@@ -127,30 +125,21 @@ final class SyncEngine {
         }
     }
 
-    private lazy var createdPrivateSubscriptionKey: String = {
-        return "CREATEDSUBDB-\(SyncConstants.customZoneID.zoneName)"
-    }()
-
-    private var createdPrivateSubscription: Bool {
-        get {
-            return defaults.bool(forKey: createdPrivateSubscriptionKey)
-        }
-        set {
-            defaults.set(newValue, forKey: createdPrivateSubscriptionKey)
-        }
-    }
-
     private func prepareCloudEnvironment(then block: @escaping () -> Void) {
+        subscriptionManager = SubscriptionManager(
+            queue: cloudOperationQueue,
+            userDefaults: defaults,
+            database: privateDatabase
+        )
         workQueue.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
 
             self.createCustomZoneIfNeeded()
             self.cloudOperationQueue.waitUntilAllOperationsAreFinished()
             guard self.createdCustomZone else { return }
 
-            self.createPrivateSubscriptionsIfNeeded()
-            self.cloudOperationQueue.waitUntilAllOperationsAreFinished()
-            guard self.createdPrivateSubscription else { return }
+            let recordTypes = Array(Set(typeRegistry.keys))
+            guard subscriptionManager.createPrivateSubscriptionsIfNeeded(recordTypes: recordTypes) else { return }
 
             DispatchQueue.main.async { block() }
         }
@@ -171,7 +160,7 @@ final class SyncEngine {
         let operation = CKModifyRecordZonesOperation(recordZonesToSave: [zone], recordZoneIDsToDelete: nil)
 
         operation.modifyRecordZonesCompletionBlock = { [weak self] _, _, error in
-            guard let self = self else { return }
+            guard let self else { return }
 
             if let error = error {
                 os_log("Failed to create custom CloudKit zone: %{public}@",
@@ -196,7 +185,7 @@ final class SyncEngine {
         let operation = CKFetchRecordZonesOperation(recordZoneIDs: [SyncConstants.customZoneID])
 
         operation.fetchRecordZonesCompletionBlock = { [weak self] ids, error in
-            guard let self = self else { return }
+            guard let self else { return }
 
             if let error = error {
                 os_log("Failed to check for custom zone existence: %{public}@", log: self.log, type: .error, String(describing: error))
@@ -222,86 +211,12 @@ final class SyncEngine {
         cloudOperationQueue.addOperation(operation)
     }
 
-    private func createPrivateSubscriptionsIfNeeded() {
-        guard !createdPrivateSubscription else {
-            os_log("Already subscribed to private database changes, skipping subscription but checking if it really exists", log: log, type: .debug)
-
-            checkSubscription()
-
-            return
-        }
-
-        let subscription = CKRecordZoneSubscription(zoneID: SyncConstants.customZoneID, subscriptionID: privateSubscriptionId)
-
-        let notificationInfo = CKSubscription.NotificationInfo()
-        notificationInfo.shouldSendContentAvailable = true
-
-        subscription.notificationInfo = notificationInfo
-        subscription.recordType = String(describing: (any Syncable).self)
-
-        let operation = CKModifySubscriptionsOperation(subscriptionsToSave: [subscription], subscriptionIDsToDelete: nil)
-
-        operation.database = privateDatabase
-        operation.qualityOfService = .userInitiated
-
-        operation.modifySubscriptionsCompletionBlock = { [weak self] _, _, error in
-            guard let self = self else { return }
-
-            if let error = error {
-                os_log("Failed to create private CloudKit subscription: %{public}@",
-                       log: self.log,
-                       type: .error,
-                       String(describing: error))
-
-                error.retryCloudKitOperationIfPossible(self.log) { self.createPrivateSubscriptionsIfNeeded() }
-            } else {
-                os_log("Private subscription created successfully", log: self.log, type: .info)
-                self.createdPrivateSubscription = true
-            }
-        }
-
-        cloudOperationQueue.addOperation(operation)
-    }
-
-    private func checkSubscription() {
-        let operation = CKFetchSubscriptionsOperation(subscriptionIDs: [privateSubscriptionId])
-
-        operation.fetchSubscriptionCompletionBlock = { [weak self] ids, error in
-            guard let self = self else { return }
-
-            if let error = error {
-                os_log("Failed to check for private zone subscription existence: %{public}@", log: self.log, type: .error, String(describing: error))
-
-                if !error.retryCloudKitOperationIfPossible(self.log, with: { self.checkSubscription() }) {
-                    os_log("Irrecoverable error when fetching private zone subscription, assuming it doesn't exist: %{public}@", log: self.log, type: .error, String(describing: error))
-
-                    DispatchQueue.main.async {
-                        self.createdPrivateSubscription = false
-                        self.createPrivateSubscriptionsIfNeeded()
-                    }
-                }
-            } else if ids == nil || ids?.count == 0 {
-                os_log("Private subscription reported as existing, but it doesn't exist. Creating.", log: self.log, type: .error)
-
-                DispatchQueue.main.async {
-                    self.createdPrivateSubscription = false
-                    self.createPrivateSubscriptionsIfNeeded()
-                }
-            }
-        }
-
-        operation.qualityOfService = .userInitiated
-        operation.database = privateDatabase
-
-        cloudOperationQueue.addOperation(operation)
-    }
-
     // MARK: - Upload
 
     private func uploadLocalDataNotUploadedYet() {
         os_log("%{public}@", log: log, type: .debug, #function)
 
-        let models = buffer.filter({ $0.ckData == nil })
+        let models = buffer.filter { $0.ckData == nil }
 
         guard !models.isEmpty else { return }
 
@@ -328,7 +243,7 @@ final class SyncEngine {
         let operation = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: [recordID])
 
         operation.modifyRecordsCompletionBlock = { [weak self] _, deletedRecordIDs, error in
-            guard let self = self else { return }
+            guard let self else { return }
 
             if let error = error {
                 os_log("Failed to delete record: %{public}@", log: self.log, type: .error, String(describing: error))
@@ -416,7 +331,7 @@ final class SyncEngine {
             }
         }
 
-        operation.savePolicy = .ifServerRecordUnchanged
+        operation.savePolicy = .allKeys
         operation.qualityOfService = .userInitiated
         
         // Add per-record progress tracking
@@ -491,8 +406,7 @@ final class SyncEngine {
 
         operation.recordZoneChangeTokensUpdatedBlock = { [weak self] _, changeToken, _ in
             guard let self else { return }
-
-            guard let changeToken = changeToken else { return }
+            guard let changeToken else { return }
 
             tokenManager.changeToken = changeToken
         }
@@ -531,7 +445,7 @@ final class SyncEngine {
         }
 
         operation.fetchRecordZoneChangesCompletionBlock = { [weak self] error in
-            guard let self = self else { return }
+            guard let self else { return }
 
             if let error = error {
                 os_log("Failed to fetch record zone changes: %{public}@",
@@ -597,7 +511,7 @@ final class SyncEngine {
         let operation = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: [recordID])
         
         operation.modifyRecordsCompletionBlock = { [weak self] _, _, error in
-            guard let self = self else { return }
+            guard let self else { return }
             
             if let error = error {
                 os_log("Failed to delete record: %{public}@", log: self.log, type: .error, String(describing: error))

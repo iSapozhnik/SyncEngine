@@ -182,41 +182,45 @@ class CoreDataManager {
          */
     }
     
-    func deleteItem(_ identifier: String) async throws {
-        /*
+    func deleteItem(_ identifiers: [String]) async throws {
         return try await withCheckedThrowingContinuation { continuation in
             let context = newBackgroundContext()
             
             context.performAndWait {
+                
                 do {
-                    // Delete associated ClipboardItemContent entries
-                    let contentFetchRequest: NSFetchRequest<ClipboardItemContent> = ClipboardItemContent.fetchRequest()
-                    contentFetchRequest.predicate = NSPredicate(format: "clipboardItemId == %@", identifier)
-                    let contents = try context.fetch(contentFetchRequest)
-                    
-                    for content in contents {
-                        context.delete(content)
-                    }
-                    
-                    // Delete the ClipboardItem
-                    let itemFetchRequest: NSFetchRequest<ClipboardItem> = ClipboardItem.fetchRequest()
-                    itemFetchRequest.predicate = NSPredicate(format: "id == %@", identifier)
-                    
-                    if let item = try context.fetch(itemFetchRequest).first {
-                        context.delete(item)
+                    for identifier in identifiers {
+                        // Delete associated ClipboardItemContent entries
+                        let contentFetchRequest: NSFetchRequest<ClipboardItemContentMO> = ClipboardItemContentMO.fetchRequest()
+                        contentFetchRequest.predicate = NSPredicate(format: "clipboardItemId == %@", identifier)
+                        contentFetchRequest.includesPropertyValues = false
+                        let contents = try context.fetch(contentFetchRequest)
+                        
+                        for content in contents {
+                            context.delete(content)
+                        }
+                        
+                        // Delete the ClipboardItem
+                        let itemFetchRequest: NSFetchRequest<ClipboardItemMO> = ClipboardItemMO.fetchRequest()
+                        itemFetchRequest.predicate = NSPredicate(format: "id == %@", identifier)
+                        itemFetchRequest.includesPropertyValues = false
+                        
+                        if let item = try context.fetch(itemFetchRequest).first {
+                            context.delete(item)
+                            self.logger.info("Deleted clipboard item and contents with ID: \(identifier)")
+                        }
                     }
                     
                     try context.save()
-                    self.logger.info("Deleted clipboard item and contents with ID: \(identifier)")
-                    
+
                     continuation.resume()
                 } catch {
                     self.logger.error("Failed to delete item: \(error.localizedDescription)")
                     continuation.resume(throwing: ClipboardError.saveFailed(error))
                 }
+
             }
         }
-         */
     }
     
     func performMaintenance() async throws {
@@ -269,6 +273,7 @@ class CoreDataManager {
         let context = container.newBackgroundContext()
         context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
         context.shouldDeleteInaccessibleFaults = true
+        context.automaticallyMergesChangesFromParent = true
         return context
     }
     
@@ -277,7 +282,6 @@ class CoreDataManager {
             do {
 //                try await eraseLocalStorage()
                 let storedItems = try await fetchClipboardItems()
-                let storedContent = storedItems.flatMap(\.contents)
                 let syncEngine = SyncEngine(
                     defaults: UserDefaults.standard,
                     initialModels: storedItems
@@ -295,9 +299,7 @@ class CoreDataManager {
                         guard let self else { return }
                         let clipboardItems = models.compactMap { $0 as? ClipboardItem }
                         let contentItems = models.compactMap { $0 as? ClipboardItemContent }
-
-//                        logger.debug("Updated ClipboardItems: \(clipboardItems)")
-//                        logger.debug("Updated ClipboardItemContents: \(contentItems)")
+                        logger.debug("didUpdateModels: clipboardItems \(clipboardItems.count) | contentItems \(contentItems.count)")
                         Task {
                             try await self.processClipboardItemCloudKitRecords(clipboardItems)
                             try await self.processClipboardItemContentCloudKitRecords(contentItems)
@@ -307,9 +309,9 @@ class CoreDataManager {
                     syncEngine.didDeleteModels = { [weak self] identifiers in
                         guard let self else { return }
                         logger.debug("didDeleteModels: \(identifiers)")
-                        
-                        //                    self?.recipes.removeAll(where: { identifiers.contains($0.id) })
-                        //                    self?.save()
+                        Task {
+                            try await self.deleteItem(identifiers)
+                        }
                     }
                     
                     syncEngine.start()
@@ -394,28 +396,44 @@ class CoreDataManager {
             
             context.performAndWait {
                 do {
-                    for clipboatdItem in clipboatdItems where clipboatdItem.cloudKitRecordID?.isEmpty == false {
+                    for clipboatdItem in clipboatdItems {
                         let fetchRequest: NSFetchRequest<ClipboardItemMO> = ClipboardItemMO.fetchRequest()
                         fetchRequest.predicate = NSPredicate(
-                            format: "id == %@ OR cloudKitRecordID == %@",
-                            clipboatdItem.id,
-                            clipboatdItem.cloudKitRecordID!
+                            format: "id == %@",
+                            clipboatdItem.id
                         )
                         
                         if let existingItem = try context.fetch(fetchRequest).first {
                             existingItem.ckData = clipboatdItem.ckData
                             logger.debug("Did update ckData for item id: \(clipboatdItem.id)")
                         } else {
-                            
+                            // Create new clipboard item
+                            let newClipboardItem = ClipboardItemMO(context: context)
+                            newClipboardItem.id = clipboatdItem.id
+                            newClipboardItem.timestamp = clipboatdItem.timestamp
+                            newClipboardItem.updatedDate = clipboatdItem.updatedDate
+                            newClipboardItem.ckData = clipboatdItem.ckData
+                                                       
+                            for clipboardItemContent in clipboatdItem.contents {
+                                let content = ClipboardItemContentMO(context: context)
+                                content.clipboardItemId = clipboardItemContent.clipboardItemId
+                                content.id = clipboardItemContent.id
+                                content.typeIdentifier = clipboardItemContent.typeIdentifier
+                                content.data = clipboardItemContent.data
+                                content.updatedDate = clipboardItemContent.updatedDate
+                                content.timestamp = clipboardItemContent.timestamp
+                                content.clipboardItemId = clipboardItemContent.clipboardItemId
+                                content.ckData = clipboardItemContent.ckData
+                            }
+                            logger.debug("Did create new item form CKRecord")
                         }
                     }
-                    
-                    
                     
                     try context.save()
                     continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)
+                    context.rollback()
                 }
             }
         }
@@ -513,7 +531,6 @@ class CoreDataManager {
             context.performAndWait {
                 do {
                     let fetchRequest: NSFetchRequest<ClipboardItemMO> = ClipboardItemMO.fetchRequest()
-                    fetchRequest.predicate = NSPredicate(format: "isRemoved == NO")
                     fetchRequest.sortDescriptors = [NSSortDescriptor(keyPath: \ClipboardItemMO.timestamp, ascending: false)]
                     
                     let managedObjects = try context.fetch(fetchRequest)
@@ -523,7 +540,7 @@ class CoreDataManager {
                     for managedObject in managedObjects {
                         // Fetch contents for this item
                         let contentsFetchRequest: NSFetchRequest<ClipboardItemContentMO> = ClipboardItemContentMO.fetchRequest()
-                        contentsFetchRequest.predicate = NSPredicate(format: "clipboardItemId == %@ AND isRemoved == NO", managedObject.id ?? "")
+                        contentsFetchRequest.predicate = NSPredicate(format: "clipboardItemId == %@", managedObject.id ?? "")
                         
                         let contentMOs = try context.fetch(contentsFetchRequest)
                         
