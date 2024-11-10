@@ -31,6 +31,7 @@ final class SyncEngine {
     private let defaults: UserDefaults
     private let tokenManager: TokenManager
     private(set) var subscriptionManager: SubscriptionManager!
+    private(set) var zoneManager: ZoneManager!
 
     private(set) lazy var container: CKContainer = {
         CKContainer(identifier: SyncConstants.containerIdentifier)
@@ -112,103 +113,29 @@ final class SyncEngine {
 
     var progressHandler: ((Double) -> Void)? = nil
 
-    private lazy var createdCustomZoneKey: String = {
-        return "CREATEDZONE-\(SyncConstants.customZoneID.zoneName)"
-    }()
-
-    private var createdCustomZone: Bool {
-        get {
-            return defaults.bool(forKey: createdCustomZoneKey)
-        }
-        set {
-            defaults.set(newValue, forKey: createdCustomZoneKey)
-        }
-    }
-
     private func prepareCloudEnvironment(then block: @escaping () -> Void) {
         subscriptionManager = SubscriptionManager(
             queue: cloudOperationQueue,
             userDefaults: defaults,
             database: privateDatabase
         )
+        
+        zoneManager = ZoneManager(
+            queue: cloudOperationQueue,
+            userDefaults: defaults,
+            database: privateDatabase
+        )
+        
         workQueue.async { [weak self] in
             guard let self else { return }
 
-            self.createCustomZoneIfNeeded()
-            self.cloudOperationQueue.waitUntilAllOperationsAreFinished()
-            guard self.createdCustomZone else { return }
+            guard zoneManager.createCustomZoneIfNeeded() else { return }
 
             let recordTypes = Array(Set(typeRegistry.keys))
             guard subscriptionManager.createPrivateSubscriptionsIfNeeded(recordTypes: recordTypes) else { return }
 
             DispatchQueue.main.async { block() }
         }
-    }
-
-    private func createCustomZoneIfNeeded() {
-        guard !createdCustomZone else {
-            os_log("Already have custom zone, skipping creation but checking if zone really exists", log: log, type: .debug)
-
-            checkCustomZone()
-
-            return
-        }
-
-        os_log("Creating CloudKit zone %@", log: log, type: .info, SyncConstants.customZoneID.zoneName)
-
-        let zone = CKRecordZone(zoneID: SyncConstants.customZoneID)
-        let operation = CKModifyRecordZonesOperation(recordZonesToSave: [zone], recordZoneIDsToDelete: nil)
-
-        operation.modifyRecordZonesCompletionBlock = { [weak self] _, _, error in
-            guard let self else { return }
-
-            if let error = error {
-                os_log("Failed to create custom CloudKit zone: %{public}@",
-                       log: self.log,
-                       type: .error,
-                       String(describing: error))
-
-                error.retryCloudKitOperationIfPossible(self.log) { self.createCustomZoneIfNeeded() }
-            } else {
-                os_log("Zone created successfully", log: self.log, type: .info)
-                self.createdCustomZone = true
-            }
-        }
-
-        operation.qualityOfService = .userInitiated
-        operation.database = privateDatabase
-
-        cloudOperationQueue.addOperation(operation)
-    }
-
-    private func checkCustomZone() {
-        let operation = CKFetchRecordZonesOperation(recordZoneIDs: [SyncConstants.customZoneID])
-
-        operation.fetchRecordZonesCompletionBlock = { [weak self] ids, error in
-            guard let self else { return }
-
-            if let error = error {
-                os_log("Failed to check for custom zone existence: %{public}@", log: self.log, type: .error, String(describing: error))
-
-                if !error.retryCloudKitOperationIfPossible(self.log, with: { self.checkCustomZone() }) {
-                    os_log("Irrecoverable error when fetching custom zone, assuming it doesn't exist: %{public}@", log: self.log, type: .error, String(describing: error))
-
-                    DispatchQueue.main.async {
-                        self.createdCustomZone = false
-                        self.createCustomZoneIfNeeded()
-                    }
-                }
-            } else if ids == nil || ids?.count == 0 {
-                os_log("Custom zone reported as existing, but it doesn't exist. Creating.", log: self.log, type: .error)
-                self.createdCustomZone = false
-                self.createCustomZoneIfNeeded()
-            }
-        }
-
-        operation.qualityOfService = .userInitiated
-        operation.database = privateDatabase
-
-        cloudOperationQueue.addOperation(operation)
     }
 
     // MARK: - Upload
