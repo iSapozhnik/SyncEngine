@@ -39,7 +39,7 @@ final class TokenManager {
         }
         set {
             guard let newValue else {
-                defaults.setValue(Data(), forKey: privateChangeTokenKey)
+                defaults.removeObject(forKey: privateChangeTokenKey)
                 return
             }
 

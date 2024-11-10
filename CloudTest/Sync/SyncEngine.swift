@@ -410,15 +410,15 @@ final class SyncEngine {
 
         os_log("Will commit %d changed record(s) and %d deleted record(s) to the database", log: log, type: .info, changedRecords.count, deletedRecordIDs.count)
 
-//        let newRecords = changedRecords.filter { record in
-//            !buffer.contains { model in 
-//                guard let modelCKData = model.ckData else { return false }
-//                return model.id == record.recordID.recordName && 
-//                       modelCKData == record.encodedSystemFields
-//            }
-//        }
+        let newRecords = changedRecords.filter { record in
+            !buffer.contains { model in 
+                guard let modelCKData = model.ckData else { return false }
+                return model.id == record["id"] &&
+                       modelCKData == record.encodedSystemFields
+            }
+        }
 
-        let models: [any Syncable] = changedRecords.compactMap { record in
+        let models: [any Syncable] = newRecords.compactMap { record in
             do {
                 return try createInstance(from: record)
             } catch {
