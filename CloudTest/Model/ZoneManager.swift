@@ -55,25 +55,25 @@ final class ZoneManager {
     private func createZone() {
         let zone = CKRecordZone(zoneID: SyncConstants.customZoneID)
         let operation = CKModifyRecordZonesOperation(recordZonesToSave: [zone], recordZoneIDsToDelete: nil)
+        
+        operation.qualityOfService = .userInitiated
+        operation.database = database
 
-        operation.modifyRecordZonesCompletionBlock = { [weak self] _, _, error in
+        operation.modifyRecordZonesResultBlock = { [weak self] result in
             guard let self else { return }
-
-            if let error = error {
+            switch result {
+            case .success:
+                os_log("Zone created successfully", log: self.log, type: .info)
+                createdCustomZone = true
+            case .failure(let error):
                 os_log("Failed to create custom CloudKit zone: %{public}@",
                        log: self.log,
                        type: .error,
                        String(describing: error))
-
-                error.retryCloudKitOperationIfPossible(self.log) { self.createCustomZoneIfNeeded() }
-            } else {
-                os_log("Zone created successfully", log: self.log, type: .info)
-                self.createdCustomZone = true
+                
+                error.retryCloudKitOperationIfPossible(log) { self.createZone() }
             }
         }
-
-        operation.qualityOfService = .userInitiated
-        operation.database = database
 
         queue.addOperation(operation)
     }
@@ -82,25 +82,21 @@ final class ZoneManager {
         let operation = CKFetchRecordZonesOperation(recordZoneIDs: [SyncConstants.customZoneID])
         operation.qualityOfService = .userInitiated
         operation.database = database
-
-        operation.fetchRecordZonesCompletionBlock = { [weak self] ids, error in
+        
+        operation.fetchRecordZonesResultBlock = { [weak self] result in
             guard let self else { return }
-
-            if let error = error {
+            
+            switch result {
+            case .success:
+                os_log("Zone verified successfully", log: self.log, type: .info)
+            case .failure(let error):
                 os_log("Failed to check for custom zone existence: %{public}@", log: self.log, type: .error, String(describing: error))
-
+                
                 if !error.retryCloudKitOperationIfPossible(self.log, with: { self.checkCustomZone() }) {
                     os_log("Irrecoverable error when fetching custom zone, assuming it doesn't exist: %{public}@", log: self.log, type: .error, String(describing: error))
-
-                    DispatchQueue.main.async {
-                        self.createdCustomZone = false
-                        self.createCustomZoneIfNeeded()
-                    }
+                    createdCustomZone = false
+                    createCustomZoneIfNeeded()
                 }
-            } else if ids == nil || ids?.count == 0 {
-                os_log("Custom zone reported as existing, but it doesn't exist. Creating.", log: self.log, type: .error)
-                self.createdCustomZone = false
-                self.createCustomZoneIfNeeded()
             }
         }
 
