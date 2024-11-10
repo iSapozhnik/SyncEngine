@@ -382,20 +382,20 @@ final class SyncEngine {
             deletedRecordIDs.append(recordID)
         }
 
-        operation.fetchRecordZoneChangesCompletionBlock = { [weak self] error in
+        operation.fetchRecordZoneChangesResultBlock = { [weak self] result in
             guard let self else { return }
+            switch result {
+            case .success:
+                os_log("Finished fetching record zone changes", log: self.log, type: .info)
 
-            if let error = error {
+                DispatchQueue.main.async { self.commitServerChangesToDatabase(with: changedRecords, deletedRecordIDs: deletedRecordIDs) }
+            case .failure(let error):
                 os_log("Failed to fetch record zone changes: %{public}@",
                        log: self.log,
                        type: .error,
                        String(describing: error))
 
                 error.retryCloudKitOperationIfPossible(self.log) { self.fetchRemoteChanges() }
-            } else {
-                os_log("Finished fetching record zone changes", log: self.log, type: .info)
-
-                DispatchQueue.main.async { self.commitServerChangesToDatabase(with: changedRecords, deletedRecordIDs: deletedRecordIDs) }
             }
         }
 
