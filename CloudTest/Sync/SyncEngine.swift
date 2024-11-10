@@ -19,7 +19,6 @@ public struct SyncConstants {
     public static let customZoneID: CKRecordZone.ID = {
         CKRecordZone.ID(zoneName: "CustomZone0", ownerName: CKCurrentUserDefaultName)
     }()
-
 }
 
 final class SyncEngine {
@@ -319,6 +318,8 @@ final class SyncEngine {
         var deletedRecordIDs: [CKRecord.ID] = []
 
         let operation = CKFetchRecordZoneChangesOperation()
+        operation.qualityOfService = .utility
+        operation.database = privateDatabase
         
         let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration(
             previousServerChangeToken: tokenManager.changeToken,
@@ -363,7 +364,17 @@ final class SyncEngine {
             }
         }
 
-        operation.recordChangedBlock = { changedRecords.append($0) }
+        operation.recordWasChangedBlock = { recordID, result in
+            switch result {
+            case .success(let record):
+                changedRecords.append(record)
+            case .failure(let error):
+                os_log("There was an error fetching a record: %{public}@",
+                       log: self.log,
+                       type: .error,
+                       String(describing: error))
+            }
+        }
 
         operation.recordWithIDWasDeletedBlock = { recordID, _ in
             // In the future we may need to use the second arg to this closure and map
@@ -387,9 +398,6 @@ final class SyncEngine {
                 DispatchQueue.main.async { self.commitServerChangesToDatabase(with: changedRecords, deletedRecordIDs: deletedRecordIDs) }
             }
         }
-
-        operation.qualityOfService = .userInitiated
-        operation.database = privateDatabase
 
         cloudOperationQueue.addOperation(operation)
     }
