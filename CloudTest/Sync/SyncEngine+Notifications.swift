@@ -11,6 +11,8 @@ import CloudKit
 
 extension SyncEngine {
 
+
+    
     @discardableResult func processSubscriptionNotification(with userInfo: [AnyHashable : Any]) -> Bool {
         os_log("%{public}@", log: log, type: .debug, #function)
 
@@ -26,8 +28,27 @@ extension SyncEngine {
 
         os_log("Received remote CloudKit notification for user data", log: log, type: .debug)
 
-        fetchRemoteChanges()
+        let syncTask = Task {
+            do {
+                try await fetchRemoteChanges()
+            } catch {
+                os_log("Failed to fetch remote changes: %{public}@", 
+                      log: self.log, 
+                      type: .error, 
+                      String(describing: error))
+            }
+        }
+        
+        Task {
+            await taskTracker.track(syncTask)
+            await syncTask.value // Wait for completion
+            await taskTracker.remove(syncTask)
+        }
 
         return true
+    }
+    
+    func cancelAllSyncTasks() async {
+        await taskTracker.cancelAll()
     }
 }

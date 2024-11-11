@@ -11,7 +11,8 @@ import os.log
 import AppKit
 import CloudKit
 
-class CoreDataManager {
+@MainActor
+final class CoreDataManager {
     
     private let container: NSPersistentContainer
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "CoreDataManager", category: "CoreData")
@@ -21,33 +22,42 @@ class CoreDataManager {
     
     var progressHandler: ((Double) -> Void)? = nil
     
-    init() {
+    private init() {
         container = NSPersistentContainer(name: "CloudTest")
         guard let description = container.persistentStoreDescriptions.first else {
             fatalError("Failed to retrieve persistent store description")
         }
+        
         // Enable history tracking for sync
         description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
         description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
         
+        // Load stores synchronously since this is a private initializer
         container.loadPersistentStores { [weak self] description, error in
             if let error = error {
                 self?.logger.error("Core Data failed to load: \(error.localizedDescription)")
                 fatalError("Core Data failed to load: \(error.localizedDescription)")
             }
             
-            self?.container.viewContext.automaticallyMergesChangesFromParent = true
-            self?.container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-            
-            self?.container.viewContext.shouldDeleteInaccessibleFaults = true
-            self?.container.viewContext.name = "viewContext"
-            
-            // Start sync
-            self?.container.viewContext.perform {
-                self?.setupSync()
-            }
+            self?.setupViewContext()
         }
         
+        setupNotificationObservers()
+    }
+    
+    private func setupViewContext() {
+        container.viewContext.automaticallyMergesChangesFromParent = true
+        container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        container.viewContext.shouldDeleteInaccessibleFaults = true
+        container.viewContext.name = "viewContext"
+        
+        // Start sync
+        Task { @MainActor in
+            await setupSync()
+        }
+    }
+    
+    private func setupNotificationObservers() {
         // Observe changes from other processes
         NotificationCenter.default.addObserver(
             self,
@@ -65,8 +75,74 @@ class CoreDataManager {
         )
     }
     
+    private func newBackgroundContext() -> NSManagedObjectContext {
+        let context = container.newBackgroundContext()
+        context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        context.shouldDeleteInaccessibleFaults = true
+        context.automaticallyMergesChangesFromParent = true
+        return context
+    }
+    
+    // MARK: - Sync Setup
+    
+    private func setupSync() async {
+        do {
+            let storedItems = try await fetchClipboardItems()
+            let syncEngine = SyncEngine(
+                defaults: UserDefaults.standard,
+                initialModels: storedItems
+            )
+            
+            syncEngine.register(ClipboardItem.self)
+            syncEngine.register(ClipboardItemContent.self)
+            
+            if try await syncEngine.requestPermission() {
+                syncEngine.progressHandler = { [weak self] progress in
+                    guard let self else { return }
+                    Task { @MainActor in
+                        self.progressHandler?(progress)
+                        self.logger.debug("progress: \(progress)%")
+                    }
+                }
+                
+                syncEngine.didUpdateModels = { [weak self] models in
+                    guard let self else { return }
+                    let clipboardItems = models.compactMap { $0 as? ClipboardItem }
+                    let contentItems = models.compactMap { $0 as? ClipboardItemContent }
+                    
+                    Task {
+                        do {
+                            try await self.processClipboardItemCloudKitRecords(clipboardItems)
+                            try await self.processClipboardItemContentCloudKitRecords(contentItems)
+                        } catch {
+                            self.logger.error("Failed to process sync updates: \(error)")
+                        }
+                    }
+                }
+                
+                syncEngine.didDeleteModels = { [weak self] identifiers in
+                    guard let self else { return }
+                    Task {
+                        do {
+                            try await self.deleteItem(identifiers)
+                        } catch {
+                            self.logger.error("Failed to process deletions: \(error)")
+                        }
+                    }
+                }
+                
+                try await syncEngine.start()
+                self.syncEngine = syncEngine
+            }
+        } catch {
+            logger.error("CloudKit setup failed: \(error.localizedDescription)")
+        }
+    }
+    
+    // MARK: - Core Data Operations
+    
     func saveClipboardData(_ clipboardData: ClipboardData) async throws -> Bool {
-        return try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { continuation in
             let context = newBackgroundContext()
             
             context.performAndWait {
@@ -132,10 +208,13 @@ class CoreDataManager {
                     // Upload to CloudKit
                     let uploads = ([item as any Syncable] + contentItems as [any Syncable])
                     
-                    syncEngine?.uploadAnys(contentItems)
-                    // Then upload the main item with references to contents
-                    syncEngine?.upload(item)
-                    continuation.resume(returning: true)
+                    Task {
+                        try await syncEngine?.uploadAnys(contentItems)
+                        // Then upload the main item with references to contents
+                        try await syncEngine?.upload(item)
+                        continuation.resume(returning: true)
+                    }
+                    
                     
                 } catch {
                     continuation.resume(throwing: ClipboardError.saveFailed(error))
@@ -267,93 +346,6 @@ class CoreDataManager {
             }
         }
          */
-    }
-    
-    private func newBackgroundContext() -> NSManagedObjectContext {
-        let context = container.newBackgroundContext()
-        context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-        context.shouldDeleteInaccessibleFaults = true
-        context.automaticallyMergesChangesFromParent = true
-        return context
-    }
-    
-    private func setupSync() {
-        Task {
-            do {
-//                try await eraseLocalStorage()
-                let storedItems = try await fetchClipboardItems()
-                let syncEngine = SyncEngine(
-                    defaults: UserDefaults.standard,
-                    initialModels: storedItems
-                )
-                syncEngine.register(ClipboardItem.self)
-                syncEngine.register(ClipboardItemContent.self)
-                
-                if try await syncEngine.requestPermission() {
-                    syncEngine.progressHandler = { [weak self] progress in
-                        guard let self else { return }
-                        self.progressHandler?(progress)
-                        logger.debug("progress: \(progress)%")
-                    }
-                    syncEngine.didUpdateModels = { [weak self] models in
-                        guard let self else { return }
-                        let clipboardItems = models.compactMap { $0 as? ClipboardItem }
-                        let contentItems = models.compactMap { $0 as? ClipboardItemContent }
-                        logger.debug("didUpdateModels: clipboardItems \(clipboardItems.count) | contentItems \(contentItems.count)")
-                        Task {
-                            try await self.processClipboardItemCloudKitRecords(clipboardItems)
-                            try await self.processClipboardItemContentCloudKitRecords(contentItems)
-                        }
-                    }
-                    
-                    syncEngine.didDeleteModels = { [weak self] identifiers in
-                        guard let self else { return }
-                        logger.debug("didDeleteModels: \(identifiers)")
-                        Task {
-                            try await self.deleteItem(identifiers)
-                        }
-                    }
-                    
-                    syncEngine.start()
-                    self.syncEngine = syncEngine
-                }
-                
-                
-            } catch {
-                logger.error("CloudKit setup failed: \(error.localizedDescription)")
-            }
-        }
-    }
-    
-    private func initiateSync() async throws {
-//        try await CloudKitSyncEngine.shared.performSync()
-//        logger.info("CloudKit sync completed successfully")
-    }
-    
-    func processSubscriptionNotification(with userInfo: [AnyHashable : Any]) {
-        syncEngine?.processSubscriptionNotification(with: userInfo)
-    }
-    
-    @objc private func storeRemoteChange(_ notification: Notification) {
-        Task {
-            do {
-                // Refresh objects and trigger a sync
-                await container.viewContext.perform {
-                    self.container.viewContext.refreshAllObjects()
-                }
-//                try await initiateSync()
-            } catch {
-                logger.error("Failed to process remote changes: \(error.localizedDescription)")
-            }
-        }
-    }
-    
-    @objc private func cloudKitAccountChanged(_ notification: Notification) {
-        Task {
-            await container.viewContext.perform { [weak self] in
-                self?.setupSync()
-            }
-        }
     }
     
     func fetchLocalItemsPendingCloudKitSync() async throws -> [ClipboardItem] {
@@ -525,27 +517,23 @@ class CoreDataManager {
     }
     
     func fetchClipboardItems() async throws -> [ClipboardItem] {
-        return try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { continuation in
             let context = newBackgroundContext()
             
-            context.performAndWait {
+            context.perform {
                 do {
                     let fetchRequest: NSFetchRequest<ClipboardItemMO> = ClipboardItemMO.fetchRequest()
                     fetchRequest.sortDescriptors = [NSSortDescriptor(keyPath: \ClipboardItemMO.timestamp, ascending: false)]
                     
                     let managedObjects = try context.fetch(fetchRequest)
-                    
-                    // Convert to value types and fetch their contents
                     var items: [ClipboardItem] = []
+                    
                     for managedObject in managedObjects {
-                        // Fetch contents for this item
                         let contentsFetchRequest: NSFetchRequest<ClipboardItemContentMO> = ClipboardItemContentMO.fetchRequest()
                         contentsFetchRequest.predicate = NSPredicate(format: "clipboardItemId == %@", managedObject.id ?? "")
                         
                         let contentMOs = try context.fetch(contentsFetchRequest)
-                        
                         let item = ClipboardItem(managedObject: managedObject, contents: contentMOs)
-                        
                         items.append(item)
                     }
                     
@@ -656,6 +644,41 @@ class CoreDataManager {
                     continuation.resume(throwing: error)
                 }
             }
+        }
+    }
+    
+    func processSubscriptionNotification(with userInfo: [AnyHashable : Any]) {
+        Task {
+            await syncEngine?.processSubscriptionNotification(with: userInfo)
+        }
+    }
+    
+    @objc private func storeRemoteChange(_ notification: Notification) {
+        Task { @MainActor in
+            container.viewContext.refreshAllObjects()
+        }
+    }
+    
+    @objc private func cloudKitAccountChanged(_ notification: Notification) {
+        Task { @MainActor in
+            await setupSync()
+        }
+    }
+}
+
+// MARK: - Error Types
+enum CoreDataError: LocalizedError {
+    case saveFailed(Error)
+    case fetchFailed(Error)
+    case invalidData
+    case unknown
+    
+    var errorDescription: String? {
+        switch self {
+        case .saveFailed(let error): return "Failed to save: \(error.localizedDescription)"
+        case .fetchFailed(let error): return "Failed to fetch: \(error.localizedDescription)"
+        case .invalidData: return "Invalid data"
+        case .unknown: return "Unknown error"
         }
     }
 }
