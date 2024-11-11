@@ -107,14 +107,13 @@ final class SyncEngine {
         )
         
         zoneManager = ZoneManager(
-            queue: .main,
             userDefaults: defaults,
             database: privateDatabase
         )
         
-//        guard try await zoneManager.createCustomZoneIfNeeded() else {
-//            throw NSError(domain: "SyncEngine", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create custom zone"])
-//        }
+        guard try await zoneManager.createCustomZoneIfNeeded() else {
+            throw NSError(domain: "SyncEngine", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create custom zone"])
+        }
         
         let recordTypes = Array(Set(typeRegistry.keys))
         guard try await subscriptionManager.createPrivateSubscriptionsIfNeeded(recordTypes: recordTypes) else {
