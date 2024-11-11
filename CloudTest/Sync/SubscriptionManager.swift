@@ -10,10 +10,8 @@ import CloudKit
 import os.log
 
 final class SubscriptionManager {
-    private let queue: OperationQueue
-    private let userDefaults: UserDefaults
     private let database: CKDatabase
-    
+    private let userDefaults: UserDefaults
     private let log = OSLog(subsystem: SyncConstants.subsystemName, category: "SubscriptionManager")
     
     private lazy var createdPrivateSubscriptionKey: String = {
@@ -29,8 +27,7 @@ final class SubscriptionManager {
         }
     }
     
-    init(queue: OperationQueue, userDefaults: UserDefaults, database: CKDatabase) {
-        self.queue = queue
+    init(userDefaults: UserDefaults, database: CKDatabase) {
         self.userDefaults = userDefaults
         self.database = database
     }
@@ -40,9 +37,14 @@ final class SubscriptionManager {
         return subscriptionsRegistry.values.contains(subscriptionID)
     }
     
-    func createPrivateSubscriptionsIfNeeded(recordTypes: [String]) -> Bool {
+    func createPrivateSubscriptionsIfNeeded(recordTypes: [String]) async throws -> Bool {
+        os_log("⏳ Started processing subscriptions",
+               log: log,
+               type: .info
+        )
         var check: [CKSubscription.ID] = []
         var create: [String] = []
+        
         for recordType in recordTypes {
             if let subscriptionId = subscriptionsRegistry[recordType] {
                 os_log(
@@ -51,7 +53,6 @@ final class SubscriptionManager {
                     type: .debug,
                     recordType
                 )
-                
                 check.append(subscriptionId)
             } else {
                 os_log(
@@ -64,98 +65,117 @@ final class SubscriptionManager {
             }
         }
         
-        checkSubscriptions(for: check)
-        createSubscriptions(for: create)
-        
-        queue.waitUntilAllOperationsAreFinished()
-        
+        if !check.isEmpty {
+            try await checkSubscriptions(for: check)
+        }
+        if !create.isEmpty {
+            try await createSubscriptions(for: create)
+        }
+        os_log("✅ Finished processing subscriptions.",
+               log: log,
+               type: .info
+        )
         return true
     }
     
-    private func createSubscriptions(for recordTypes: [String]) {
-        var subscriptions: [String: CKSubscription] = [:]
-        recordTypes.forEach { subscriptions[$0] = makeSubscriptionObject(for: $0) }
+    private func createSubscriptions(for recordTypes: [String]) async throws {
+        let subscriptions = recordTypes.map { makeSubscriptionObject(for: $0) }
         
-        let operation = CKModifySubscriptionsOperation(
-            subscriptionsToSave: Array(subscriptions.values),
-            subscriptionIDsToDelete: nil
-        )
-
-        operation.database = database
-        operation.qualityOfService = .userInitiated
-        
-        operation.perSubscriptionSaveBlock = { [weak self] subscriptionID, saveResult in
-            guard let self else { return }
-            guard let recordType = subscriptions.first(where: { $0.value.subscriptionID == subscriptionID })?.key else {
-                os_log("Could not match registered subscription with requested subscription. subscriptionID: %{public}@",
-                       log: self.log,
-                       type: .error,
-                       subscriptionID
-                )
-                return
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for subscriptionPair in subscriptions {
+                    group.addTask {
+                        do {
+                            os_log("🔄 Creting private subscription for %{public}@",
+                                   log: self.log,
+                                   type: .info,
+                                   subscriptionPair.recordType
+                            )
+                            let savedSubscription = try await self.database.save(subscriptionPair.subscription)
+                            os_log("Private subscription for %{public}@ created successfully",
+                                  log: self.log,
+                                  type: .info,
+                                   subscriptionPair.recordType
+                            )
+                            self.subscriptionsRegistry[subscriptionPair.recordType] = savedSubscription.subscriptionID
+                        } catch {
+                            os_log("Failed to create private CloudKit subscription: %{public}@",
+                                  log: self.log,
+                                  type: .error,
+                                  String(describing: error))
+                            throw error
+                        }
+                    }
+                }
+                try await group.waitForAll()
             }
-            switch saveResult {
-            case .success(let subscription):
-                os_log("Private subscription for %{public}@ created successfully", log: self.log, type: .info, recordType)
-                subscriptionsRegistry[recordType] = subscription.subscriptionID
-            case .failure(let error):
-                os_log("Failed to create private CloudKit subscription: %{public}@",
-                       log: self.log,
-                       type: .error,
-                       String(describing: error))
-                error.retryCloudKitOperationIfPossible(log) { self.createSubscriptions(for: [recordType]) }
+        } catch {
+            if await error.retryCloudKitOperationIfPossible(log) {
+                try await createSubscriptions(for: recordTypes)
+            } else {
+                throw error
             }
         }
-        queue.addOperation(operation)
     }
     
-    private func checkSubscriptions(for subscriptionIDs: [CKSubscription.ID]) {
-        let operation = CKFetchSubscriptionsOperation(subscriptionIDs: subscriptionIDs)
-        operation.database = database
-        operation.qualityOfService = .userInitiated
-        
-        operation.perSubscriptionResultBlock = { [weak self] subscriptionID, saveResult in
-            guard let self else { return }
-            
-            switch saveResult {
-            case .success:
-                os_log("Private subscription verified successfully", log: self.log, type: .info)
-            case .failure(let error):
-                guard let recordType = subscriptionsRegistry.first(where: { $0.value == subscriptionID })?.key else {
-                    os_log("Could not match verified subscription with requested subscription. subscriptionID: %{public}@",
-                           log: self.log,
-                           type: .error,
-                           subscriptionID
-                    )
-                    return
+    private func checkSubscriptions(for subscriptionIDs: [CKSubscription.ID]) async throws {
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for subscriptionID in subscriptionIDs {
+                    group.addTask {
+                        do {
+                            let subscription = try await self.database.subscription(for: subscriptionID)
+                            os_log("Private subscription %{public}@ verified successfully",
+                                   log: self.log,
+                                   type: .info,
+                                   subscription.subscriptionID
+                            )
+                        } catch {
+                            guard let recordType = self.subscriptionsRegistry.first(where: { $0.value == subscriptionID })?.key else {
+                                os_log("Could not match verified subscription with requested subscription. subscriptionID: %{public}@",
+                                       log: self.log,
+                                       type: .error,
+                                       subscriptionID
+                                )
+                                return
+                            }
+                            
+                            os_log("Private subscription exists locally, but does not exist in CloudKit: %{public}@",
+                                  log: self.log,
+                                  type: .error,
+                                  String(describing: error))
+                            
+                            if await error.retryCloudKitOperationIfPossible(self.log) {
+                                try await self.createSubscriptions(for: [recordType])
+                            } else {
+                                os_log("Irrecoverable error when checking private subscription, assuming it doesn't exist: %{public}@",
+                                      log: self.log,
+                                      type: .error,
+                                      String(describing: error))
+                                self.subscriptionsRegistry[recordType] = nil
+                                try await self.createSubscriptions(for: [recordType])
+                            }
+                        }
+                    }
                 }
-                
-                os_log("Private subscription exists locally, but does not exist in CloudKit: %{public}@.",
-                       log: self.log,
-                       type: .error,
-                       String(describing: error))
-                if !error.retryCloudKitOperationIfPossible(log, with: { self.createSubscriptions(for: [recordType]) }) {
-                    os_log("Irrecoverable error when checking private subscription, assuming it doesn't exist: %{public}@", log: self.log, type: .error, String(describing: error))
-                    subscriptionsRegistry[recordType] = nil
-                    createSubscriptions(for: [recordType])
-                }
+                try await group.waitForAll()
             }
+        } catch {
+            throw error
         }
-        
-        queue.addOperation(operation)
     }
     
-    private func makeSubscriptionObject(for recordType: String) -> CKSubscription {
+    private func makeSubscriptionObject(for recordType: String) -> (recordType: String, subscription: CKSubscription) {
         let subscription = CKRecordZoneSubscription(
             zoneID: SyncConstants.customZoneID,
             subscriptionID: subscriptionId(for: recordType)
         )
         let notificationInfo = CKSubscription.NotificationInfo()
         notificationInfo.shouldSendContentAvailable = true
-
+        
         subscription.notificationInfo = notificationInfo
         subscription.recordType = recordType
-        return subscription
+        return (recordType, subscription)
     }
     
     private func subscriptionId(for recortType: String) -> String {

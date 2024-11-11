@@ -107,4 +107,21 @@ public extension Error {
         return true
     }
 
+    func retryCloudKitOperationIfPossible(_ log: OSLog? = nil) async -> Bool {
+        let effectiveLog: OSLog = log ?? .default
+
+        guard let effectiveError = self as? CKError else { return false }
+
+        guard let retryDelay: Double = effectiveError.retryAfterSeconds else {
+            os_log("Error is not recoverable", log: effectiveLog, type: .error)
+            return false
+        }
+
+        os_log("Error is recoverable. Will retry after %{public}f seconds", log: effectiveLog, type: .error, retryDelay)
+
+        try? await Task.sleep(nanoseconds: UInt64(retryDelay * 1_000_000_000))
+        
+        return true
+    }
+
 }
