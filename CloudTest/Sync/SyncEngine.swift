@@ -27,6 +27,9 @@ public enum SyncState {
 }
 
 final class SyncEngine {
+    enum EngineError: Error {
+        case setupFailed
+    }
     private var typeRegistry: [String: any Syncable.Type] = [:]
     private var initializerRegistry: [String: (CKRecord) throws -> any Syncable] = [:]
 
@@ -93,14 +96,16 @@ final class SyncEngine {
     }
     
     func start() async throws {
-        try await prepareCloudEnvironment()
-        os_log("Cloud environment preparation done", log: self.log, type: .debug)
+        guard try await prepareCloudEnvironment() else {
+            throw EngineError.setupFailed
+        }
+        os_log("✅ Cloud environment preparation done", log: self.log, type: .debug)
         
         await uploadLocalDataNotUploadedYet()
         try await fetchRemoteChanges()
     }
     
-    private func prepareCloudEnvironment() async throws {
+    private func prepareCloudEnvironment() async throws -> Bool {
         subscriptionManager = SubscriptionManager(
             userDefaults: defaults,
             database: privateDatabase
@@ -111,14 +116,13 @@ final class SyncEngine {
             database: privateDatabase
         )
         
-        guard try await zoneManager.createCustomZoneIfNeeded() else {
-            throw NSError(domain: "SyncEngine", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create custom zone"])
-        }
-        
+        async let zoneCreation = zoneManager.createCustomZoneIfNeeded()
         let recordTypes = Array(Set(typeRegistry.keys))
-        guard try await subscriptionManager.createPrivateSubscriptionsIfNeeded(recordTypes: recordTypes) else {
-            throw NSError(domain: "SyncEngine", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to create subscriptions"])
-        }
+        async let subscriptionCreation = subscriptionManager.createPrivateSubscriptionsIfNeeded(recordTypes: recordTypes)
+        
+        let zoneCreated = try await zoneCreation
+        let subscriptionCreated  = try await subscriptionCreation
+        return zoneCreated && subscriptionCreated
     }
     
     // MARK: - Upload

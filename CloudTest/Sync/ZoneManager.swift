@@ -10,6 +10,15 @@ import CloudKit
 import os.log
 
 final class ZoneManager {
+    enum Constants {
+        static let retryCount: Int = 3
+    }
+    
+    enum ManagerError: Error {
+        case failedCreatingZone
+        case failedCheckingZone
+    }
+    
     private let userDefaults: UserDefaults
     private let database: CKDatabase
     
@@ -20,12 +29,8 @@ final class ZoneManager {
     }()
 
     private var createdCustomZone: Bool {
-        get {
-            return userDefaults.bool(forKey: createdCustomZoneKey)
-        }
-        set {
-            userDefaults.set(newValue, forKey: createdCustomZoneKey)
-        }
+        get { userDefaults.bool(forKey: createdCustomZoneKey) }
+        set { userDefaults.set(newValue, forKey: createdCustomZoneKey) }
     }
     
     init(userDefaults: UserDefaults, database: CKDatabase) {
@@ -35,30 +40,28 @@ final class ZoneManager {
     
     @discardableResult
     func createCustomZoneIfNeeded() async throws -> Bool {
-        os_log("⏳ Started setting up Zone.",
-               log: log,
-               type: .info
-        )
+        os_log("⏳ Started setting up Zone.", log: log, type: .info)
         
         if createdCustomZone {
-            os_log("Already have custom zone, skipping creation but checking if zone really exists", log: log, type: .debug)
-
+            os_log("Already have custom zone, skipping creation but checking if zone really exists",
+                   log: log, type: .debug)
             try await checkCustomZone()
         } else {
-            os_log("Creating CloudKit zone %@", log: log, type: .info, SyncConstants.customZoneID.zoneName)
-            
+            os_log("Creating CloudKit zone %@",
+                   log: log, type: .info,
+                   SyncConstants.customZoneID.zoneName)
             try await createZone()
         }
         
-        os_log("✅ Finished setting up Zone.",
-               log: log,
-               type: .info
-        )
-        
+        os_log("✅ Finished setting up Zone.", log: log, type: .info)
         return createdCustomZone
     }
     
-    private func createZone() async throws {
+    private func createZone(retryCount: Int = Constants.retryCount) async throws {
+        guard retryCount > 0 else {
+            throw ManagerError.failedCreatingZone
+        }
+        
         let zone = CKRecordZone(zoneID: SyncConstants.customZoneID)
         
         do {
@@ -72,12 +75,18 @@ final class ZoneManager {
                    String(describing: error))
             
             if await error.retryCloudKitOperationIfPossible(log) {
-                try await createZone()
+                try await createZone(retryCount: retryCount - 1)
+            } else {
+                throw error
             }
         }
     }
     
-    private func checkCustomZone() async throws {
+    private func checkCustomZone(retryCount: Int = Constants.retryCount) async throws {
+        guard retryCount > 0 else {
+            throw ManagerError.failedCheckingZone
+        }
+        
         do {
             let fetchedZone = try await database.recordZone(for: SyncConstants.customZoneID)
             os_log("Zone %{public}@ verified successfully", log: self.log, type: .info, fetchedZone.zoneID.zoneName)
@@ -85,12 +94,12 @@ final class ZoneManager {
             os_log("Failed to check for custom zone existence: %{public}@", log: self.log, type: .error, String(describing: error))
             
             if await error.retryCloudKitOperationIfPossible(log) {
-                try await checkCustomZone()
+                try await checkCustomZone(retryCount: retryCount - 1)
+            } else {
+                os_log("Irrecoverable error when fetching custom zone, assuming it doesn't exist: %{public}@", log: self.log, type: .error, String(describing: error))
+                createdCustomZone = false
+                try await createCustomZoneIfNeeded()
             }
-                
-            os_log("Irrecoverable error when fetching custom zone, assuming it doesn't exist: %{public}@", log: self.log, type: .error, String(describing: error))
-            createdCustomZone = false
-            try await createCustomZoneIfNeeded()
         }
     }
 }
