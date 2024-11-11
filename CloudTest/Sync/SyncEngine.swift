@@ -21,10 +21,18 @@ public struct SyncConstants {
     }()
 }
 
+public enum SyncState {
+    case idle
+    case loading
+}
+
 final class SyncEngine {
     private var typeRegistry: [String: any Syncable.Type] = [:]
     private var initializerRegistry: [String: (CKRecord) throws -> any Syncable] = [:]
 
+    private let continuation: AsyncStream<SyncState>.Continuation
+    let syncState: AsyncStream<SyncState>
+    
     let log = OSLog(subsystem: SyncConstants.subsystemName, category: String(describing: SyncEngine.self))
     let taskTracker = SyncTaskTracker()
 
@@ -59,6 +67,7 @@ final class SyncEngine {
         self.defaults = defaults
         self.buffer = initialModels
         self.tokenManager = TokenManager(defaults: defaults)
+        (syncState, continuation) = AsyncStream<SyncState>.makeStream()
     }
     
     func requestPermission() async throws -> Bool {
@@ -212,6 +221,10 @@ final class SyncEngine {
     
     func fetchRemoteChanges() async throws {
         os_log("%{public}@", log: log, type: .debug, #function)
+
+        await MainActor.run {
+            self.continuation.yield(.loading)
+        }
         
         var changedRecords: [CKRecord] = []
         var deletedRecordIDs: [CKRecord.ID] = []
@@ -272,6 +285,7 @@ final class SyncEngine {
             if !deletedIdentifiers.isEmpty {
                 self.didDeleteModels(deletedIdentifiers)
             }
+            continuation.yield(.idle)
         }
     }
     
@@ -284,8 +298,10 @@ final class SyncEngine {
     
     func uploadAnys(_ models: [any Syncable]) async throws {
         os_log("%{public}@", log: log, type: .debug, #function)
+        continuation.yield(.loading)
         buffer.append(contentsOf: models)
         try await uploadRecords(models.map { $0.record })
+        continuation.yield(.idle)
     }
     
     func deleteAny<T: Syncable>(_ model: T) async throws {

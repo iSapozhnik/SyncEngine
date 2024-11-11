@@ -23,7 +23,6 @@ class ViewController: NSViewController {
     }
     
     private func setupUI() {
-        // Add scroll view
         CoreDataManager.shared.progressHandler = { [weak self] progress in
             guard let self else { return }
             self.progressView.animator().doubleValue = progress
@@ -33,7 +32,7 @@ class ViewController: NSViewController {
     private func loadExistingContent() {
         Task {
             do {
-                let items = try await fetchClipboardItems()
+                let items = try await CoreDataManager.shared.fetchClipboardItems()
                 let attributedString = NSMutableAttributedString()
                 
                 for item in items {
@@ -48,10 +47,6 @@ class ViewController: NSViewController {
                 print("Failed to load existing content:", error)
             }
         }
-    }
-    
-    private func fetchClipboardItems() async throws -> [ClipboardItem] {
-        return try await CoreDataManager.shared.fetchClipboardItems()
     }
     
     private func appendClipboardItem(_ item: ClipboardItem, to attributedString: NSMutableAttributedString) async {

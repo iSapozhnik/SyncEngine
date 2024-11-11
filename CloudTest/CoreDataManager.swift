@@ -21,7 +21,8 @@ final class CoreDataManager {
     private var syncEngine: SyncEngine?
     
     var progressHandler: ((Double) -> Void)? = nil
-    
+    var stateStream: AsyncStream<SyncState>?
+
     private init() {
         container = NSPersistentContainer(name: "CloudTest")
         guard let description = container.persistentStoreDescriptions.first else {
@@ -44,7 +45,7 @@ final class CoreDataManager {
         
         setupNotificationObservers()
     }
-    
+
     private func setupViewContext() {
         container.viewContext.automaticallyMergesChangesFromParent = true
         container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
@@ -92,7 +93,7 @@ final class CoreDataManager {
                 defaults: UserDefaults.standard,
                 initialModels: storedItems
             )
-            
+            stateStream = syncEngine.syncState
             syncEngine.register(ClipboardItem.self)
             syncEngine.register(ClipboardItemContent.self)
             
