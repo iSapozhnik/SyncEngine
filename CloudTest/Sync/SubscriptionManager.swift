@@ -10,6 +10,15 @@ import CloudKit
 import os.log
 
 final class SubscriptionManager {
+    enum Constants {
+        static let retryCount: Int = 3
+    }
+
+    enum ManagerError: Error {
+        case failedCreatingSubscription
+        case failedCheckingSubscription
+    }
+    
     private let database: CKDatabase
     private let userDefaults: UserDefaults
     private let log = OSLog(subsystem: SyncConstants.subsystemName, category: "SubscriptionManager")
@@ -78,7 +87,14 @@ final class SubscriptionManager {
         return true
     }
     
-    private func createSubscriptions(for recordTypes: [String]) async throws {
+    private func createSubscriptions(
+        for recordTypes: [String],
+        retryCount: Int = Constants.retryCount
+    ) async throws {
+        guard retryCount > 0 else {
+            throw ManagerError.failedCreatingSubscription
+        }
+
         let subscriptions = recordTypes.map { makeSubscriptionObject(for: $0) }
         
         do {
@@ -110,15 +126,27 @@ final class SubscriptionManager {
                 try await group.waitForAll()
             }
         } catch {
+            os_log("Failed to create subscriptions: %{public}@",
+                   log: log,
+                   type: .error,
+                   String(describing: error))
+               
             if await error.retryCloudKitOperationIfPossible(log) {
-                try await createSubscriptions(for: recordTypes)
+                try await createSubscriptions(for: recordTypes, retryCount: retryCount - 1)
             } else {
                 throw error
             }
         }
     }
     
-    private func checkSubscriptions(for subscriptionIDs: [CKSubscription.ID]) async throws {
+    private func checkSubscriptions(
+        for subscriptionIDs: [CKSubscription.ID],
+        retryCount: Int = Constants.retryCount
+    ) async throws {
+        guard retryCount > 0 else {
+            throw ManagerError.failedCheckingSubscription
+        }
+
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 for subscriptionID in subscriptionIDs {
@@ -146,14 +174,14 @@ final class SubscriptionManager {
                                   String(describing: error))
                             
                             if await error.retryCloudKitOperationIfPossible(self.log) {
-                                try await self.createSubscriptions(for: [recordType])
+                                try await self.createSubscriptions(for: [recordType], retryCount: retryCount - 1)
                             } else {
                                 os_log("Irrecoverable error when checking private subscription, assuming it doesn't exist: %{public}@",
                                       log: self.log,
                                       type: .error,
                                       String(describing: error))
                                 self.subscriptionsRegistry[recordType] = nil
-                                try await self.createSubscriptions(for: [recordType])
+                                try await self.createSubscriptions(for: [recordType], retryCount: retryCount - 1)
                             }
                         }
                     }
@@ -161,7 +189,16 @@ final class SubscriptionManager {
                 try await group.waitForAll()
             }
         } catch {
-            throw error
+            os_log("Failed to check subscriptions: %{public}@",
+                   log: log,
+                   type: .error,
+                   String(describing: error))
+               
+            if await error.retryCloudKitOperationIfPossible(log) {
+                try await checkSubscriptions(for: subscriptionIDs, retryCount: retryCount - 1)
+            } else {
+                throw error
+            }
         }
     }
     

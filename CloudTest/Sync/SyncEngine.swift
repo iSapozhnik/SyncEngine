@@ -214,8 +214,8 @@ final class SyncEngine {
             return model
         }
         
+        guard !models.isEmpty else { return }
         await MainActor.run {
-            guard !models.isEmpty else { return }
             self.didUpdateModels(models)
         }
     }
@@ -225,38 +225,39 @@ final class SyncEngine {
     func fetchRemoteChanges() async throws {
         os_log("%{public}@", log: log, type: .debug, #function)
 
-        await MainActor.run {
+        Task { @MainActor in
             self.continuation.yield(.loading)
         }
         
+        var awaitingChanges = true
         var changedRecords: [CKRecord] = []
         var deletedRecordIDs: [CKRecord.ID] = []
         
-        let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration(
-            previousServerChangeToken: tokenManager.changeToken,
-            resultsLimit: nil,
-            desiredKeys: nil
-        )
-        
-        let allChanges = try await privateDatabase.recordZoneChanges(
-            inZoneWith: SyncConstants.customZoneID,
-            since: tokenManager.changeToken
-        )
-        
-        tokenManager.changeToken = allChanges.changeToken
-        let changes = allChanges.modificationResultsByID.compactMapValues { try? $0.get().record }
-        for (_, record) in changes {
-            changedRecords.append(record)
+        while awaitingChanges {
+            let allChanges = try await privateDatabase.recordZoneChanges(
+                inZoneWith: SyncConstants.customZoneID,
+                since: tokenManager.changeToken
+            )
+            
+            let changes = allChanges.modificationResultsByID.compactMapValues { try? $0.get().record }
+            for (_, record) in changes {
+                changedRecords.append(record)
+            }
+            
+            let deletetions = allChanges.deletions.map { $0.recordID }
+            deletedRecordIDs.append(contentsOf: deletetions)
+                        
+            tokenManager.changeToken = allChanges.changeToken
+            
+            awaitingChanges = allChanges.moreComing
         }
-        
-        deletedRecordIDs = allChanges.deletions.map { $0.recordID }
         
         await commitServerChangesToDatabase(with: changedRecords, deletedRecordIDs: deletedRecordIDs)
     }
     
     private func commitServerChangesToDatabase(with changedRecords: [CKRecord], deletedRecordIDs: [CKRecord.ID]) async {
         guard !changedRecords.isEmpty || !deletedRecordIDs.isEmpty else {
-            os_log("Finished record zone changes fetch with no changes", log: log, type: .info)
+            os_log("✅ Finished record zone changes fetch with no changes", log: log, type: .info)
             return
         }
         
@@ -265,8 +266,7 @@ final class SyncEngine {
         let newRecords = changedRecords.filter { record in
             !buffer.contains { model in
                 guard let modelCKData = model.ckData else { return false }
-                return model.id == record["id"] &&
-                       modelCKData == record.encodedSystemFields
+                return model.id == record["id"] && modelCKData == record.encodedSystemFields
             }
         }
         
