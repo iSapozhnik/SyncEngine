@@ -39,14 +39,14 @@ extension ClipboardItemContent: Syncable {
         let parentRecordID = CKRecord.ID(recordName: clipboardItemId, zoneID: SyncConstants.customZoneID)
         r[.clipboardItem] = CKRecord.Reference(recordID: parentRecordID, action: .deleteSelf)
         
-        if data.count > 1_000_000 {
-            let tempURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        if data.count >= 1_000_000 {
+            let tempURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(clipboardItemId)
             do {
-                try data.write(to: tempURL, options: [.atomic])
+                try data.write(to: tempURL)
+                r[.asset] = CKAsset(fileURL: tempURL)
             } catch {
-                
+                print("💩 Error saving asset to a temp folder: \(error.localizedDescription)")
             }
-            r[.asset] = CKAsset(fileURL: tempURL)
         } else {
             r[.data] = data
         }
