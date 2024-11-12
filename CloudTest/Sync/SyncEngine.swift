@@ -1,11 +1,3 @@
-//
-//  SyncEngine.swift
-//  KitchenCore
-//
-//  Created by Guilherme Rambo on 24/02/20.
-//  Copyright © 2020 Guilherme Rambo. All rights reserved.
-//
-
 import Foundation
 import CloudKit
 import os.log
