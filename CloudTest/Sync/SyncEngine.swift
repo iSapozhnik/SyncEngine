@@ -41,7 +41,7 @@ final class SyncEngine {
     let syncState: AsyncStream<SyncState>
     
     let log = OSLog(subsystem: SyncConstants.subsystemName, category: String(describing: SyncEngine.self))
-    let taskTracker = SyncTaskTracker()
+    let taskSerializer = SerialTasks<Void>()
 
     private let defaults: UserDefaults
     private let tokenManager: TokenManager

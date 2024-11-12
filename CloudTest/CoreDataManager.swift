@@ -554,11 +554,10 @@ final class CoreDataManager {
         try await withCheckedThrowingContinuation { continuation in
             let context = newBackgroundContext()
             
-            context.perform {
+            context.performAndWait {
                 do {
                     let fetchRequest: NSFetchRequest<ClipboardItemMO> = ClipboardItemMO.fetchRequest()
                     fetchRequest.sortDescriptors = [NSSortDescriptor(keyPath: \ClipboardItemMO.timestamp, ascending: false)]
-                    
                     let managedObjects = try context.fetch(fetchRequest)
                     var items: [ClipboardItem] = []
                     
