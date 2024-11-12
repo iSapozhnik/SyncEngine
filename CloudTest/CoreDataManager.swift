@@ -212,7 +212,8 @@ final class CoreDataManager {
                     }
                     
                     try context.save()
-                    
+                    continuation.resume(returning: true)
+
                     // Create ClipboardItem for sync
                     let item = ClipboardItem(
                         id: clipboardData.identifier,
@@ -229,7 +230,6 @@ final class CoreDataManager {
                         try await syncEngine?.uploadAnys(contentItems)
                         // Then upload the main item with references to contents
                         try await syncEngine?.upload(item)
-                        continuation.resume(returning: true)
                     }
                     
                     

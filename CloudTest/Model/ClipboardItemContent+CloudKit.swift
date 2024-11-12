@@ -40,7 +40,7 @@ extension ClipboardItemContent: Syncable {
         r[.clipboardItem] = CKRecord.Reference(recordID: parentRecordID, action: .deleteSelf)
         
         if data.count >= 1_000_000 {
-            let tempURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(clipboardItemId)
+            let tempURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
             do {
                 try data.write(to: tempURL)
                 r[.asset] = CKAsset(fileURL: tempURL)
