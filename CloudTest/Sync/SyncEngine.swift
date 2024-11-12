@@ -27,8 +27,12 @@ public enum SyncState {
 }
 
 final class SyncEngine {
+    enum Constants {
+        static let retryCount: Int = 3
+    }
     enum EngineError: Error {
         case setupFailed
+        case failedFetchingRemoteChanges
     }
     private var typeRegistry: [String: any Syncable.Type] = [:]
     private var initializerRegistry: [String: (CKRecord) throws -> any Syncable] = [:]
@@ -56,7 +60,7 @@ final class SyncEngine {
     private var buffer: [any Syncable]
 
     /// Called after models are updated with CloudKit data.
-    var didUpdateModels: ([any Syncable]) -> Void = { _ in }
+    var didUpdateModels: ([String: [any Syncable]]) -> Void = { _ in }
 
     /// Called when models are deleted remotely.
     var didDeleteModels: ([String]) -> Void = { _ in }
@@ -165,64 +169,79 @@ final class SyncEngine {
         
         os_log("%{public}@ with %d record(s)", log: log, type: .debug, #function, records.count)
         
+        let modifyResult = try await privateDatabase.modifyRecords(
+            saving: records,
+            deleting: []
+        )
+        
         var serverRecords: [CKRecord] = []
         
-        try await withThrowingTaskGroup(of: CKRecord.self) { group in
-            for record in records {
-                group.addTask {
-                    do {
-                        let savedRecord = try await self.privateDatabase.save(record)
-                        progress.completedUnitCount += 1
+        for (recordID, result) in modifyResult.saveResults {
+            do {
+                let savedRecord = try result.get()
+                progress.completedUnitCount += 1
+
+                await MainActor.run {
+                    self.progressHandler?(Double(progress.fractionCompleted))
+                }
+                serverRecords.append(savedRecord)
+            } catch let error as CKError {
+                if error.isCloudKitConflict.hasConflict, let conflictData = error.isCloudKitConflict.conflictData {
+                    guard let syncableType = getType(for: conflictData.localRecord.recordType) else {
+                        throw error
+                    }
+                    
+                    let resolvedRecord = syncableType.resolveConflict(
+                        clientRecord: conflictData.localRecord,
+                        serverRecord: conflictData.remoteRecord
+                    )
+                    
+                    // Handle the resolved conflict by saving it
+                    let conflictResult = try await privateDatabase.modifyRecords(
+                        saving: [resolvedRecord],
+                        deleting: [],
+                        savePolicy: .changedKeys
+                    )
+                    if let savedRecord = try conflictResult.saveResults[recordID]?.get() {
                         await MainActor.run {
                             self.progressHandler?(Double(progress.fractionCompleted))
                         }
-                        return savedRecord
-                    } catch let error as CKError {
-                        if error.isCloudKitConflict.hasConflict,
-                           let conflictData = error.isCloudKitConflict.conflictData {
-                            guard let syncableType = self.getType(for: conflictData.localRecord.recordType) else {
-                                throw error
-                            }
-                            
-                            let resolvedRecord = syncableType.resolveConflict(
-                                clientRecord: conflictData.localRecord,
-                                serverRecord: conflictData.remoteRecord
-                            )
-                            
-                            return try await self.privateDatabase.save(resolvedRecord)
-                        }
-                        throw error
+                        serverRecords.append(savedRecord)
                     }
+                } else {
+                    throw error
                 }
             }
-            
-            for try await record in group {
-                serverRecords.append(record)
-            }
         }
-        
-        await updateLocalModelsAfterUpload(with: serverRecords)
+        let groupedServerRecords: [String: [CKRecord]] = Dictionary(grouping: serverRecords, by: \.recordType)
+        await updateLocalModelsAfterUpload(with: groupedServerRecords)
     }
     
-    private func updateLocalModelsAfterUpload(with records: [CKRecord]) async {
-        let models: [any Syncable] = records.compactMap { (r: CKRecord) -> (any Syncable)? in
-            guard var model = buffer.first(where: { $0.id == r.recordID.recordName }) else { return nil }
-            
-            model.ckData = r.encodedSystemFields
-            buffer.removeAll(where: { $0.id == r.recordID.recordName })
-            
-            return model
+    private func updateLocalModelsAfterUpload(with records: [String: [CKRecord]]) async {
+        var convertedModels: [String: [any Syncable]] = [:]
+        for (key, records) in records {
+            let models = records.compactMap { (record: CKRecord) -> (any Syncable)? in
+                guard var model = buffer.first(where: { $0.id == record.recordID.recordName }) else { return nil }
+                model.ckData = record.encodedSystemFields
+                buffer.removeAll(where: { $0.id == record.recordID.recordName })
+                return model
+            }
+            convertedModels[key] = models
         }
         
-        guard !models.isEmpty else { return }
-        await MainActor.run {
-            self.didUpdateModels(models)
+        guard !convertedModels.isEmpty else { return }
+        await MainActor.run { [convertedModels] in
+            self.didUpdateModels(convertedModels)
         }
     }
     
     // MARK: - Remote change tracking
     
-    func fetchRemoteChanges() async throws {
+    func fetchRemoteChanges(retryCount: Int = Constants.retryCount) async throws {
+        guard retryCount > 0 else {
+            throw EngineError.failedFetchingRemoteChanges
+        }
+        
         os_log("%{public}@", log: log, type: .debug, #function)
 
         Task { @MainActor in
@@ -233,57 +252,93 @@ final class SyncEngine {
         var changedRecords: [CKRecord] = []
         var deletedRecordIDs: [CKRecord.ID] = []
         
-        while awaitingChanges {
-            let allChanges = try await privateDatabase.recordZoneChanges(
-                inZoneWith: SyncConstants.customZoneID,
-                since: tokenManager.changeToken
-            )
-            
-            let changes = allChanges.modificationResultsByID.compactMapValues { try? $0.get().record }
-            for (_, record) in changes {
-                changedRecords.append(record)
+        do {
+            while awaitingChanges {
+                let allChanges = try await privateDatabase.recordZoneChanges(
+                    inZoneWith: SyncConstants.customZoneID,
+                    since: tokenManager.changeToken
+                )
+                
+                let changes = allChanges.modificationResultsByID.compactMapValues { try? $0.get().record }
+                for (_, record) in changes {
+                    changedRecords.append(record)
+                }
+                
+                let deletetions = allChanges.deletions.map { $0.recordID }
+                deletedRecordIDs.append(contentsOf: deletetions)
+                
+                tokenManager.changeToken = allChanges.changeToken
+                
+                awaitingChanges = allChanges.moreComing
             }
             
-            let deletetions = allChanges.deletions.map { $0.recordID }
-            deletedRecordIDs.append(contentsOf: deletetions)
-                        
-            tokenManager.changeToken = allChanges.changeToken
-            
-            awaitingChanges = allChanges.moreComing
+        } catch {
+            os_log("Failed to fetch record zone changes: %{public}@",
+                   log: self.log,
+                   type: .error,
+                   String(describing: error))
+
+            if (error as? CKError)?.code == .changeTokenExpired {
+                os_log("Change token expired, resetting token and trying again", log: self.log, type: .error)
+
+                tokenManager.changeToken = nil
+                try await fetchRemoteChanges()
+            } else {
+                if await error.retryCloudKitOperationIfPossible(log) {
+                    try await fetchRemoteChanges(retryCount: retryCount - 1)
+                } else {
+                    throw error
+                }
+            }
         }
-        
-        await commitServerChangesToDatabase(with: changedRecords, deletedRecordIDs: deletedRecordIDs)
+        let groupedChangedRecords = Dictionary(grouping: changedRecords, by: \.recordType)
+        await commitServerChangesToDatabase(with: groupedChangedRecords, deletedRecordIDs: deletedRecordIDs)
     }
     
-    private func commitServerChangesToDatabase(with changedRecords: [CKRecord], deletedRecordIDs: [CKRecord.ID]) async {
-        guard !changedRecords.isEmpty || !deletedRecordIDs.isEmpty else {
+    private func commitServerChangesToDatabase(with changedRecords: [String: [CKRecord]], deletedRecordIDs: [CKRecord.ID]) async {
+        let allChangedRecords = Array(changedRecords.values.flatMap(\.self))
+        guard !allChangedRecords.isEmpty || !deletedRecordIDs.isEmpty else {
             os_log("✅ Finished record zone changes fetch with no changes", log: log, type: .info)
             return
         }
         
-        os_log("Will commit %d changed record(s) and %d deleted record(s) to the database", log: log, type: .info, changedRecords.count, deletedRecordIDs.count)
-        
-        let newRecords = changedRecords.filter { record in
+        os_log("Will commit %d changed record(s) and %d deleted record(s) to the database", log: log, type: .info, allChangedRecords.count, deletedRecordIDs.count)
+
+        let newRecords: [CKRecord] = allChangedRecords.filter { record in
             !buffer.contains { model in
                 guard let modelCKData = model.ckData else { return false }
                 return model.id == record["id"] && modelCKData == record.encodedSystemFields
             }
         }
         
-        let models: [any Syncable] = newRecords.compactMap { record in
+        let models = newRecords.compactMap { (record) -> (recordType: String, model: any Syncable)? in
             do {
-                return try createInstance(from: record)
+                if let instance = try createInstance(from: record) {
+                    return (recordType: record.recordType, model: instance)
+                } else {
+                    return nil
+                }
             } catch {
                 os_log("Error decoding model from record: %{public}@", log: self.log, type: .error, String(describing: error))
                 return nil
             }
         }
         
+        var convertedModels: [String: [any Syncable]] = [:]
+        let groupedModels = Dictionary(
+            grouping: models,
+            by: { $0.recordType }
+        )
+        for (key, value) in groupedModels {
+            let models: [any Syncable] = value.map { $0.model }
+            convertedModels[key] = models
+        }
+
         let deletedIdentifiers = deletedRecordIDs.map { $0.recordName }
         
-        await MainActor.run {
-            if !models.isEmpty {
-                self.didUpdateModels(models)
+        await MainActor.run { [convertedModels] in
+            if !convertedModels.isEmpty {
+                self.didUpdateModels(convertedModels)
             }
             if !deletedIdentifiers.isEmpty {
                 self.didDeleteModels(deletedIdentifiers)

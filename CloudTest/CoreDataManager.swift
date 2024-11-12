@@ -106,15 +106,31 @@ final class CoreDataManager {
                     }
                 }
                 
+                let typeMapping: [String: Any.Type] = [
+                    "ClipboardItem": ClipboardItem.self,
+                    "ClipboardItemContent": ClipboardItemContent.self
+                ]
                 syncEngine.didUpdateModels = { [weak self] models in
                     guard let self else { return }
-                    let clipboardItems = models.compactMap { $0 as? ClipboardItem }
-                    let contentItems = models.compactMap { $0 as? ClipboardItemContent }
+                    
+                    var clipboardItems: [ClipboardItem] = []
+                    var clipboardItemContents: [ClipboardItemContent] = []
+                    
+                    for (key, models) in models {
+                        guard let type = typeMapping[key] else { continue }
+                        switch type {
+                        case is ClipboardItem.Type:
+                            clipboardItems = models.compactMap { $0 as? ClipboardItem }
+                        case is ClipboardItemContent.Type:
+                            clipboardItemContents = models.compactMap { $0 as? ClipboardItemContent }
+                        default: break
+                        }
+                    }
                     
                     Task {
                         do {
                             try await self.processClipboardItemCloudKitRecords(clipboardItems)
-                            try await self.processClipboardItemContentCloudKitRecords(contentItems)
+                            try await self.processClipboardItemContentCloudKitRecords(clipboardItemContents)
                         } catch {
                             self.logger.error("Failed to process sync updates: \(error)")
                         }
@@ -389,25 +405,26 @@ final class CoreDataManager {
             
             context.performAndWait {
                 do {
-                    for clipboatdItem in clipboatdItems {
-                        let fetchRequest: NSFetchRequest<ClipboardItemMO> = ClipboardItemMO.fetchRequest()
-                        fetchRequest.predicate = NSPredicate(
-                            format: "id == %@",
-                            clipboatdItem.id
-                        )
-                        
-                        if let existingItem = try context.fetch(fetchRequest).first {
-                            existingItem.ckData = clipboatdItem.ckData
-                            logger.debug("Did update ckData for item id: \(clipboatdItem.id)")
+                    let clipboardItemIds = clipboatdItems.map(\.id)
+                    let fetchRequest: NSFetchRequest<ClipboardItemMO> = ClipboardItemMO.fetchRequest()
+                    fetchRequest.predicate = NSPredicate(format: "id IN %@", clipboardItemIds)
+                    
+                    let existingItems = try context.fetch(fetchRequest)
+                    let existingItemsDict = Dictionary(uniqueKeysWithValues: existingItems.map { ($0.id!, $0) })
+                    
+                    for clipboardItem in clipboatdItems {
+                        if let existingItem = existingItemsDict[clipboardItem.id] {
+                            existingItem.ckData = clipboardItem.ckData
+                            logger.debug("Did update ckData for item id: \(clipboardItem.id)")
                         } else {
-                            // Create new clipboard item
                             let newClipboardItem = ClipboardItemMO(context: context)
-                            newClipboardItem.id = clipboatdItem.id
-                            newClipboardItem.timestamp = clipboatdItem.timestamp
-                            newClipboardItem.updatedDate = clipboatdItem.updatedDate
-                            newClipboardItem.ckData = clipboatdItem.ckData
-                                                       
-                            for clipboardItemContent in clipboatdItem.contents {
+                            newClipboardItem.id = clipboardItem.id
+                            newClipboardItem.timestamp = clipboardItem.timestamp
+                            newClipboardItem.updatedDate = clipboardItem.updatedDate
+                            newClipboardItem.ckData = clipboardItem.ckData
+                            newClipboardItem.cloudKitRecordID = clipboardItem.cloudKitRecordID
+                            
+                            for clipboardItemContent in clipboardItem.contents {
                                 let content = ClipboardItemContentMO(context: context)
                                 content.clipboardItemId = clipboardItemContent.clipboardItemId
                                 content.id = clipboardItemContent.id
@@ -417,11 +434,12 @@ final class CoreDataManager {
                                 content.timestamp = clipboardItemContent.timestamp
                                 content.clipboardItemId = clipboardItemContent.clipboardItemId
                                 content.ckData = clipboardItemContent.ckData
+                                content.cloudKitRecordID = clipboardItemContent.cloudKitRecordID
                             }
-                            logger.debug("Did create new item form CKRecord")
+                            logger.debug("Did create new item from CKRecord")
                         }
                     }
-                    
+                        
                     try context.save()
                     continuation.resume()
                 } catch {
@@ -432,24 +450,38 @@ final class CoreDataManager {
         }
     }
     
-    func processClipboardItemContentCloudKitRecords(_ clipboatdItemContents: [ClipboardItemContent]) async throws {
+    func processClipboardItemContentCloudKitRecords(_ clipboardItemContents: [ClipboardItemContent]) async throws {
         return try await withCheckedThrowingContinuation { continuation in
             let context = newBackgroundContext()
             
             context.performAndWait {
                 do {
-                    for clipboatdItemContent in clipboatdItemContents {
-                        let fetchRequest: NSFetchRequest<ClipboardItemContentMO> = ClipboardItemContentMO.fetchRequest()
-                        fetchRequest.predicate = NSPredicate(
-                            format: "id == %@",
-                            clipboatdItemContent.id
-                        )
-                        
-                        if let existingItem = try context.fetch(fetchRequest).first {
-                            existingItem.ckData = clipboatdItemContent.ckData
-                            logger.debug("Did update ckData for itemContent id: \(clipboatdItemContent.id)")
+                    // Fetch all existing items at once
+                    let contentIds = clipboardItemContents.map { $0.id }
+                    let fetchRequest: NSFetchRequest<ClipboardItemContentMO> = ClipboardItemContentMO.fetchRequest()
+                    fetchRequest.predicate = NSPredicate(format: "id IN %@", contentIds)
+                    
+                    let existingContents = try context.fetch(fetchRequest)
+                    let existingContentsDict = Dictionary(uniqueKeysWithValues: existingContents.map { ($0.id!, $0) })
+                    
+                    for clipboardItemContent in clipboardItemContents {
+                        if let existingContent = existingContentsDict[clipboardItemContent.id] {
+                            // Update existing content
+                            existingContent.ckData = clipboardItemContent.ckData
+                            existingContent.cloudKitRecordID = clipboardItemContent.cloudKitRecordID
+                            logger.debug("Did update ckData for itemContent id: \(clipboardItemContent.id)")
                         } else {
-                            
+                            // Create new content
+                            let newContent = ClipboardItemContentMO(context: context)
+                            newContent.clipboardItemId = clipboardItemContent.clipboardItemId
+                            newContent.id = clipboardItemContent.id
+                            newContent.typeIdentifier = clipboardItemContent.typeIdentifier
+                            newContent.data = clipboardItemContent.data
+                            newContent.updatedDate = clipboardItemContent.updatedDate
+                            newContent.timestamp = clipboardItemContent.timestamp
+                            newContent.ckData = clipboardItemContent.ckData
+                            newContent.cloudKitRecordID = clipboardItemContent.cloudKitRecordID
+                            logger.debug("Did create new content from CKRecord")
                         }
                     }
                     
@@ -457,6 +489,7 @@ final class CoreDataManager {
                     continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)
+                    context.rollback()
                 }
             }
         }
