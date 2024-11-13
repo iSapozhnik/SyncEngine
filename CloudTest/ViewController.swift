@@ -20,8 +20,19 @@ class ViewController: NSViewController {
         view.window?.title = "Loading..."
         loadExistingContent()
         startObservingClipboard()
+        CoreDataManager.shared.updateUI = { [weak self] in
+            guard let self else { return }
+            self.loadExistingContent()
+        }
     }
     
+    @IBAction func clearAll(_ sender: Any) {
+        Task {
+            try await CoreDataManager.shared.eraseLocalStorage()
+            textView.textStorage?.setAttributedString(.init())
+            loadExistingContent()
+        }
+    }
     private func setupUI() {
         CoreDataManager.shared.progressHandler = { [weak self] progress in
             guard let self else { return }
@@ -47,6 +58,7 @@ class ViewController: NSViewController {
                 print("Failed to load existing content:", error)
             }
         }
+        
     }
     
     private func appendClipboardItem(_ item: ClipboardItem, to attributedString: NSMutableAttributedString) async {

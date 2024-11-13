@@ -98,33 +98,20 @@ final class SubscriptionManager {
         let subscriptions = recordTypes.map { makeSubscriptionObject(for: $0) }
         
         do {
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                for subscriptionPair in subscriptions {
-                    group.addTask {
-                        do {
-                            os_log("🔄 Creting private subscription for %{public}@",
-                                   log: self.log,
-                                   type: .info,
-                                   subscriptionPair.recordType
-                            )
-                            let savedSubscription = try await self.database.save(subscriptionPair.subscription)
-                            os_log("Private subscription for %{public}@ created successfully",
-                                  log: self.log,
-                                  type: .info,
-                                   subscriptionPair.recordType
-                            )
-                            self.subscriptionsRegistry[subscriptionPair.recordType] = savedSubscription.subscriptionID
-                        } catch {
-                            os_log("Failed to create private CloudKit subscription: %{public}@",
-                                  log: self.log,
-                                  type: .error,
-                                  String(describing: error))
-                            throw error
-                        }
-                    }
-                }
-                try await group.waitForAll()
+            os_log("🔄 Creting private subscription for types: %{public}@",
+                   log: self.log,
+                   type: .info,
+                   recordTypes.joined(separator: ", ")
+            )
+            let savedSubscriptions = try await database.modifySubscriptions(saving: subscriptions.map(\.subscription), deleting: []).saveResults.compactMap { try $0.value.get() }
+            for (subscription, recordType) in zip(savedSubscriptions, recordTypes) {
+                subscriptionsRegistry[recordType] = subscription.subscriptionID
+                os_log("Private subscription for %{public}@ created successfully",
+                       log: self.log,
+                       type: .info,
+                       recordType)
             }
+            
         } catch {
             os_log("Failed to create subscriptions: %{public}@",
                    log: log,

@@ -22,6 +22,8 @@ final class CoreDataManager {
     
     var progressHandler: ((Double) -> Void)? = nil
     var stateStream: AsyncStream<SyncState>?
+    
+    var updateUI: () -> Void = {}
 
     private init() {
         container = NSPersistentContainer(name: "CloudTest")
@@ -79,8 +81,6 @@ final class CoreDataManager {
     private func newBackgroundContext() -> NSManagedObjectContext {
         let context = container.newBackgroundContext()
         context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-        context.shouldDeleteInaccessibleFaults = true
-        context.automaticallyMergesChangesFromParent = true
         return context
     }
     
@@ -131,6 +131,9 @@ final class CoreDataManager {
                         do {
                             try await self.processClipboardItemCloudKitRecords(clipboardItems)
                             try await self.processClipboardItemContentCloudKitRecords(clipboardItemContents)
+                            await MainActor.run {
+                                self.updateUI()
+                            }
                         } catch {
                             self.logger.error("Failed to process sync updates: \(error)")
                         }
@@ -142,6 +145,9 @@ final class CoreDataManager {
                     Task {
                         do {
                             try await self.deleteItem(identifiers)
+                            await MainActor.run {
+                                self.updateUI()
+                            }
                         } catch {
                             self.logger.error("Failed to process deletions: \(error)")
                         }
