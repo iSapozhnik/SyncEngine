@@ -11,16 +11,21 @@ import CloudKit
 import os.log
 
 final class TokenManager {
-    private let log = OSLog(subsystem: SyncConstants.subsystemName, category: "TokenManager")
+    private let log = OSLog(subsystem: SyncEngine.Constants.subsystemName, category: "TokenManager")
     
+    private let config: SyncEngineConfig
     private let defaults: UserDefaults
-    
-    init(defaults: UserDefaults) {
+
+    init(
+        syncConfig: SyncEngineConfig,
+        defaults: UserDefaults
+    ) {
+        config = syncConfig
         self.defaults = defaults
     }
     
     lazy var privateChangeTokenKey: String = {
-        return "TOKEN-\(SyncConstants.customZoneID.zoneName)"
+        return "TOKEN-\(config.zoneName)"
     }()
 
     var changeToken: CKServerChangeToken? {

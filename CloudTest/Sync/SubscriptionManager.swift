@@ -21,10 +21,11 @@ final class SubscriptionManager {
     
     private let database: CKDatabase
     private let userDefaults: UserDefaults
-    private let log = OSLog(subsystem: SyncConstants.subsystemName, category: "SubscriptionManager")
+    private let config: SyncEngineConfig
+    private let log = OSLog(subsystem: SyncEngine.Constants.subsystemName, category: "SubscriptionManager")
     
     private lazy var createdPrivateSubscriptionKey: String = {
-        return "CREATEDSUBDB-\(SyncConstants.customZoneID.zoneName)"
+        return "CREATEDSUBDB-\(config.zoneName)"
     }()
     
     private var subscriptionsRegistry: [String: CKSubscription.ID] {
@@ -36,7 +37,12 @@ final class SubscriptionManager {
         }
     }
     
-    init(userDefaults: UserDefaults, database: CKDatabase) {
+    init(
+        syncConfig: SyncEngineConfig,
+        userDefaults: UserDefaults,
+        database: CKDatabase
+    ) {
+        config = syncConfig
         self.userDefaults = userDefaults
         self.database = database
     }
@@ -191,7 +197,7 @@ final class SubscriptionManager {
     
     private func makeSubscriptionObject(for recordType: String) -> (recordType: String, subscription: CKSubscription) {
         let subscription = CKRecordZoneSubscription(
-            zoneID: SyncConstants.customZoneID,
+            zoneID: config.customZoneID,
             subscriptionID: subscriptionId(for: recordType)
         )
         let notificationInfo = CKSubscription.NotificationInfo()
@@ -203,7 +209,7 @@ final class SubscriptionManager {
     }
     
     private func subscriptionId(for recortType: String) -> String {
-        return "\(SyncConstants.customZoneID.zoneName).\(recortType).subscription"
+        return "\(config.zoneName).\(recortType).subscription"
     }
 }
 

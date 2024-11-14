@@ -10,7 +10,8 @@ import Cocoa
 class ViewController: NSViewController {
     private let clipboardObserver = ClipboardObserver()
     private var observationTask: Task<Void, Never>?
-    
+    private var upscalerWindowController: ImageUpscalerWindowController?
+
     @IBOutlet var textView: NSTextView!
     @IBOutlet weak var progressView: NSProgressIndicator!
     
@@ -25,6 +26,14 @@ class ViewController: NSViewController {
             self.loadExistingContent()
         }
     }
+    
+    @IBAction func openUpscalerButtonClicked(_ sender: NSButton) {
+            if upscalerWindowController == nil {
+                upscalerWindowController = ImageUpscalerWindowController()
+            }
+            upscalerWindowController?.showWindow(nil)
+            upscalerWindowController?.window?.makeKeyAndOrderFront(nil)
+        }
     
     @IBAction func clearAll(_ sender: Any) {
         Task {

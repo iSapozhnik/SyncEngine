@@ -15,12 +15,12 @@ extension SyncEngine {
         os_log("%{public}@", log: log, type: .debug, #function)
 
         guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) else {
-            os_log("Not a CKNotification", log: self.log, type: .error)
+            os_log("Not a CKNotification", log: log, type: .error)
             return false
         }
 
         guard subscriptionManager.shouldHandleSubscriptionID(notification.subscriptionID) else {
-            os_log("Not our subscription ID", log: self.log, type: .debug)
+            os_log("Not our subscription ID", log: log, type: .debug)
             return false
         }
 

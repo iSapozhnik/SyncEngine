@@ -30,6 +30,6 @@ extension Syncable {
     }
     
     var recordID: CKRecord.ID {
-        CKRecord.ID(recordName: id, zoneID: SyncConstants.customZoneID)
+        CKRecord.ID(recordName: id, zoneID: SyncConfig.default.customZoneID)
     }
 }

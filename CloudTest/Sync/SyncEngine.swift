@@ -2,17 +2,6 @@ import Foundation
 import CloudKit
 import os.log
 
-public struct SyncConstants {
-
-    public static let containerIdentifier = "iCloud.com.isapozhnik.CloudTest0"
-
-    public static let subsystemName = "com.isapozhnik.CloudTest"
-
-    public static let customZoneID: CKRecordZone.ID = {
-        CKRecordZone.ID(zoneName: "CustomZone0", ownerName: CKCurrentUserDefaultName)
-    }()
-}
-
 public enum SyncState {
     case idle
     case loading
@@ -21,6 +10,7 @@ public enum SyncState {
 final class SyncEngine {
     enum Constants {
         static let retryCount: Int = 3
+        static let subsystemName = "com.isapozhnik.SyncEngine"
     }
     enum EngineError: Error {
         case setupFailed
@@ -32,7 +22,7 @@ final class SyncEngine {
     private let continuation: AsyncStream<SyncState>.Continuation
     let syncState: AsyncStream<SyncState>
     
-    let log = OSLog(subsystem: SyncConstants.subsystemName, category: String(describing: SyncEngine.self))
+    let log = OSLog(subsystem: Constants.subsystemName, category: String(describing: SyncEngine.self))
     let taskSerializer = SerialTasks<Void>()
 
     private let defaults: UserDefaults
@@ -41,9 +31,8 @@ final class SyncEngine {
     private(set) var subscriptionManager: SubscriptionManager!
     private(set) var zoneManager: ZoneManager!
 
-    private(set) lazy var container: CKContainer = {
-        CKContainer(identifier: SyncConstants.containerIdentifier)
-    }()
+    private let container: CKContainer
+    private let config: SyncEngineConfig
 
     private(set) lazy var privateDatabase: CKDatabase = {
         container.privateCloudDatabase
@@ -60,12 +49,18 @@ final class SyncEngine {
     var progressHandler: ((Double) -> Void)? = nil
 
     init(
+        syncConfig: SyncEngineConfig,
         defaults: UserDefaults,
         initialModels: [any Syncable]
     ) {
         self.defaults = defaults
         self.buffer = initialModels
-        self.tokenManager = TokenManager(defaults: defaults)
+        self.tokenManager = TokenManager(
+            syncConfig: syncConfig,
+            defaults: defaults
+        )
+        config = syncConfig
+        container = CKContainer(identifier: config.containerIdentifier)
         (syncState, continuation) = AsyncStream<SyncState>.makeStream()
     }
     
@@ -103,11 +98,13 @@ final class SyncEngine {
     
     private func prepareCloudEnvironment() async throws -> Bool {
         subscriptionManager = SubscriptionManager(
+            syncConfig: config,
             userDefaults: defaults,
             database: privateDatabase
         )
         
         zoneManager = ZoneManager(
+            syncConfig: config,
             userDefaults: defaults,
             database: privateDatabase
         )
@@ -144,7 +141,7 @@ final class SyncEngine {
     func delete(_ model: any Syncable) async throws {
         os_log("%{public}@", log: log, type: .debug, #function)
         
-        let recordID = CKRecord.ID(recordName: model.id, zoneID: SyncConstants.customZoneID)
+        let recordID = CKRecord.ID(recordName: model.id, zoneID: config.customZoneID)
         try await privateDatabase.deleteRecord(withID: recordID)
         
         await MainActor.run {
@@ -247,7 +244,7 @@ final class SyncEngine {
         do {
             while awaitingChanges {
                 let allChanges = try await privateDatabase.recordZoneChanges(
-                    inZoneWith: SyncConstants.customZoneID,
+                    inZoneWith: config.customZoneID,
                     since: tokenManager.changeToken
                 )
                 

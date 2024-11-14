@@ -29,7 +29,7 @@ extension ClipboardItem: Syncable {
             let contentReferences = contents.map { clipboardItemContent -> CKRecord.Reference in
                 let contentRecordID = CKRecord.ID(
                     recordName: clipboardItemContent.id,
-                    zoneID: SyncConstants.customZoneID
+                    zoneID: SyncConfig.default.customZoneID
                 )
                 return CKRecord.Reference(
                     recordID: contentRecordID,
@@ -37,11 +37,6 @@ extension ClipboardItem: Syncable {
                 )
             }
             r[.contents] = contentReferences as NSArray
-            
-//            let reference = CKRecord.Reference(recordID: whistle.recordID, action: .deleteSelf)
-//            let whistleRecord = CKRecord(recordType: "Suggestions")
-//            whistleRecord["text"] = suggestion as CKRecordValue
-//            whistleRecord["owningWhistle"] = reference as CKRecordValue
         }
         
         return r

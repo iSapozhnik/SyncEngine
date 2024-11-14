@@ -90,6 +90,7 @@ final class CoreDataManager {
         do {
             let storedItems = try await fetchClipboardItems()
             let syncEngine = SyncEngine(
+                syncConfig: SyncConfig.default,
                 defaults: UserDefaults.standard,
                 initialModels: storedItems
             )

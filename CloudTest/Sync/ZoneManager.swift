@@ -19,13 +19,14 @@ final class ZoneManager {
         case failedCheckingZone
     }
     
+    private let config: SyncEngineConfig
     private let userDefaults: UserDefaults
     private let database: CKDatabase
     
-    private let log = OSLog(subsystem: SyncConstants.subsystemName, category: "ZoneManager")
+    private let log = OSLog(subsystem: SyncEngine.Constants.subsystemName, category: "ZoneManager")
 
     private lazy var createdCustomZoneKey: String = {
-        return "CREATEDZONE-\(SyncConstants.customZoneID.zoneName)"
+        return "CREATEDZONE-\(config.zoneName)"
     }()
 
     private var createdCustomZone: Bool {
@@ -33,7 +34,12 @@ final class ZoneManager {
         set { userDefaults.set(newValue, forKey: createdCustomZoneKey) }
     }
     
-    init(userDefaults: UserDefaults, database: CKDatabase) {
+    init(
+        syncConfig: SyncEngineConfig,
+        userDefaults: UserDefaults,
+        database: CKDatabase
+    ) {
+        config = syncConfig
         self.userDefaults = userDefaults
         self.database = database
     }
@@ -49,7 +55,7 @@ final class ZoneManager {
         } else {
             os_log("Creating CloudKit zone %@",
                    log: log, type: .info,
-                   SyncConstants.customZoneID.zoneName)
+                   config.zoneName)
             try await createZone()
         }
         
@@ -62,7 +68,7 @@ final class ZoneManager {
             throw ManagerError.failedCreatingZone
         }
         
-        let zone = CKRecordZone(zoneID: SyncConstants.customZoneID)
+        let zone = CKRecordZone(zoneID: config.customZoneID)
         
         do {
             let zone = try await database.save(zone)
@@ -88,7 +94,7 @@ final class ZoneManager {
         }
         
         do {
-            let fetchedZone = try await database.recordZone(for: SyncConstants.customZoneID)
+            let fetchedZone = try await database.recordZone(for: config.customZoneID)
             os_log("Zone %{public}@ verified successfully", log: self.log, type: .info, fetchedZone.zoneID.zoneName)
         } catch {
             os_log("Failed to check for custom zone existence: %{public}@", log: self.log, type: .error, String(describing: error))

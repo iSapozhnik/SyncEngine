@@ -36,7 +36,7 @@ extension ClipboardItemContent: Syncable {
         r[.clipboardItemId] = clipboardItemId
         r[.id] = id
         
-        let parentRecordID = CKRecord.ID(recordName: clipboardItemId, zoneID: SyncConstants.customZoneID)
+        let parentRecordID = CKRecord.ID(recordName: clipboardItemId, zoneID: SyncConfig.default.customZoneID)
         r[.clipboardItem] = CKRecord.Reference(recordID: parentRecordID, action: .deleteSelf)
         
         if data.count >= 1_000_000 {
