@@ -27,9 +27,11 @@ final class SyncEngine {
 
     private let defaults: UserDefaults
     private let tokenManager: TokenManager
+    private let accountMiddleware: AccountStatusMiddleware
 
     private(set) var subscriptionManager: SubscriptionManager!
     private(set) var zoneManager: ZoneManager!
+    private var statusTask: Task<Void, Never>?
 
     private let container: CKContainer
     private let config: SyncEngineConfig
@@ -61,11 +63,16 @@ final class SyncEngine {
         )
         config = syncConfig
         container = CKContainer(identifier: config.containerIdentifier)
+        accountMiddleware = AccountStatusMiddleware(container: container)
+
         (syncState, continuation) = AsyncStream<SyncState>.makeStream()
+        
+        setupAccountStatusMonitoring()
     }
     
     func requestPermission() async throws -> Bool {
-        try await container.accountStatus() == .available
+        await accountMiddleware.refreshStatus()
+        return accountMiddleware.lastKnownStatus == .available
     }
 
     // MARK: - Setup boilerplate
@@ -116,6 +123,16 @@ final class SyncEngine {
         let zoneCreated = try await zoneCreation
         let subscriptionCreated  = try await subscriptionCreation
         return zoneCreated && subscriptionCreated
+    }
+    
+    private func setupAccountStatusMonitoring() {
+        statusTask = Task {
+            for await status in accountMiddleware.accountStatus {
+                await MainActor.run {
+                    os_log("☁️ iCloud account status: %{public}@", log: log, type: .info, "\(status.description). \(status.detailedDescription)")
+                }
+            }
+        }
     }
     
     // MARK: - Upload
