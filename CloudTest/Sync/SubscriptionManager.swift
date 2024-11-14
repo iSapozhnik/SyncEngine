@@ -104,7 +104,7 @@ final class SubscriptionManager {
         let subscriptions = recordTypes.map { makeSubscriptionObject(for: $0) }
         
         do {
-            os_log("🔄 Creting private subscription for types: %{public}@",
+            os_log("✉️ Creting private subscription for types: %{public}@",
                    log: self.log,
                    type: .info,
                    recordTypes.joined(separator: ", ")
@@ -112,14 +112,14 @@ final class SubscriptionManager {
             let savedSubscriptions = try await database.modifySubscriptions(saving: subscriptions.map(\.subscription), deleting: []).saveResults.compactMap { try $0.value.get() }
             for (subscription, recordType) in zip(savedSubscriptions, recordTypes) {
                 subscriptionsRegistry[recordType] = subscription.subscriptionID
-                os_log("Private subscription for %{public}@ created successfully",
+                os_log("✉️ Private subscription for %{public}@ created successfully",
                        log: self.log,
                        type: .info,
                        recordType)
             }
             
         } catch {
-            os_log("Failed to create subscriptions: %{public}@",
+            os_log("✉️ Failed to create subscriptions: %{public}@",
                    log: log,
                    type: .error,
                    String(describing: error))
@@ -146,14 +146,14 @@ final class SubscriptionManager {
                     group.addTask {
                         do {
                             let subscription = try await self.database.subscription(for: subscriptionID)
-                            os_log("Private subscription %{public}@ verified successfully",
+                            os_log("✉️ Private subscription %{public}@ verified successfully",
                                    log: self.log,
                                    type: .info,
                                    subscription.subscriptionID
                             )
                         } catch {
                             guard let recordType = self.subscriptionsRegistry.first(where: { $0.value == subscriptionID })?.key else {
-                                os_log("Could not match verified subscription with requested subscription. subscriptionID: %{public}@",
+                                os_log("✉️ Could not match verified subscription with requested subscription. subscriptionID: %{public}@",
                                        log: self.log,
                                        type: .error,
                                        subscriptionID
@@ -161,7 +161,7 @@ final class SubscriptionManager {
                                 return
                             }
                             
-                            os_log("Private subscription exists locally, but does not exist in CloudKit: %{public}@",
+                            os_log("✉️ Private subscription exists locally, but does not exist in CloudKit: %{public}@",
                                   log: self.log,
                                   type: .error,
                                   String(describing: error))
@@ -169,7 +169,7 @@ final class SubscriptionManager {
                             if await error.retryCloudKitOperationIfPossible(self.log) {
                                 try await self.createSubscriptions(for: [recordType], retryCount: retryCount - 1)
                             } else {
-                                os_log("Irrecoverable error when checking private subscription, assuming it doesn't exist: %{public}@",
+                                os_log("✉️ Irrecoverable error when checking private subscription, assuming it doesn't exist: %{public}@",
                                       log: self.log,
                                       type: .error,
                                       String(describing: error))
@@ -182,7 +182,7 @@ final class SubscriptionManager {
                 try await group.waitForAll()
             }
         } catch {
-            os_log("Failed to check subscriptions: %{public}@",
+            os_log("✉️ Failed to check subscriptions: %{public}@",
                    log: log,
                    type: .error,
                    String(describing: error))

@@ -26,7 +26,7 @@ final class NetworkStatusMiddleware: NetworkStatusMiddlewareProtocol {
     
     private let monitor = NWPathMonitor()
     private let continuation: AsyncStream<Bool>.Continuation
-    private let log = OSLog(subsystem: SyncEngine.Constants.subsystemName, 
+    private let log = OSLog(subsystem: SyncEngine.Constants.subsystemName,
                           category: "NetworkStatusMiddleware")
     private var monitoringTask: Task<Void, Never>?
     
@@ -55,8 +55,8 @@ final class NetworkStatusMiddleware: NetworkStatusMiddlewareProtocol {
                     isNetworkAvailable = isAvailable
                     continuation.yield(isAvailable)
                     
-                    os_log("🛜 Network status changed: %{public}@", 
-                          log: log, 
+                    os_log("🛜 Network status changed: %{public}@",
+                          log: log,
                           type: .debug,
                           isAvailable ? "available" : "unavailable")
                 }

@@ -68,14 +68,6 @@ final class CoreDataManager {
             name: .NSPersistentStoreRemoteChange,
             object: container.persistentStoreCoordinator
         )
-        
-        // Observe CloudKit account changes
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(cloudKitAccountChanged),
-            name: .CKAccountChanged,
-            object: nil
-        )
     }
     
     private func newBackgroundContext() -> NSManagedObjectContext {
@@ -94,70 +86,104 @@ final class CoreDataManager {
                 defaults: UserDefaults.standard,
                 initialModels: storedItems
             )
+            
+            // Store reference to sync state stream
             stateStream = syncEngine.syncState
+            
+            // Register types
             syncEngine.register(ClipboardItem.self)
             syncEngine.register(ClipboardItemContent.self)
             
-            if try await syncEngine.requestPermission() {
-                syncEngine.progressHandler = { [weak self] progress in
-                    guard let self else { return }
-                    Task { @MainActor in
-                        self.progressHandler?(progress)
-                        self.logger.debug("progress: \(progress)%")
-                    }
-                }
+            // Setup progress handling
+            syncEngine.progressHandler = { [weak self] progress in
+                guard let self else { return }
+                progressHandler?(progress)
+                logger.debug("Sync progress: \(progress)%")
+            }
+            
+            // Setup handlers for remote changes
+            syncEngine.didUpdateModels = { [weak self] models in
+                guard let self else { return }
                 
                 let typeMapping: [String: Any.Type] = [
                     "ClipboardItem": ClipboardItem.self,
                     "ClipboardItemContent": ClipboardItemContent.self
                 ]
-                syncEngine.didUpdateModels = { [weak self] models in
-                    guard let self else { return }
-                    
-                    var clipboardItems: [ClipboardItem] = []
-                    var clipboardItemContents: [ClipboardItemContent] = []
-                    
-                    for (key, models) in models {
-                        guard let type = typeMapping[key] else { continue }
-                        switch type {
-                        case is ClipboardItem.Type:
-                            clipboardItems = models.compactMap { $0 as? ClipboardItem }
-                        case is ClipboardItemContent.Type:
-                            clipboardItemContents = models.compactMap { $0 as? ClipboardItemContent }
-                        default: break
+                
+                Task {
+                    do {
+                        var clipboardItems: [ClipboardItem] = []
+                        var clipboardItemContents: [ClipboardItemContent] = []
+                        
+                        for (key, models) in models {
+                            guard let type = typeMapping[key] else { continue }
+                            switch type {
+                            case is ClipboardItem.Type:
+                                clipboardItems = models.compactMap { $0 as? ClipboardItem }
+                            case is ClipboardItemContent.Type:
+                                clipboardItemContents = models.compactMap { $0 as? ClipboardItemContent }
+                            default: break
+                            }
                         }
-                    }
-                    
-                    Task {
-                        do {
+                        
+                        if !clipboardItems.isEmpty {
                             try await self.processClipboardItemCloudKitRecords(clipboardItems)
+                        }
+                        if !clipboardItemContents.isEmpty {
                             try await self.processClipboardItemContentCloudKitRecords(clipboardItemContents)
-                            await MainActor.run {
-                                self.updateUI()
-                            }
-                        } catch {
-                            self.logger.error("Failed to process sync updates: \(error)")
                         }
+                        
+                        await MainActor.run {
+                            self.updateUI()
+                        }
+                    } catch {
+                        self.logger.error("Failed to process remote updates: \(error.localizedDescription)")
                     }
                 }
-                
-                syncEngine.didDeleteModels = { [weak self] identifiers in
-                    guard let self else { return }
-                    Task {
-                        do {
-                            try await self.deleteItem(identifiers)
-                            await MainActor.run {
-                                self.updateUI()
-                            }
-                        } catch {
-                            self.logger.error("Failed to process deletions: \(error)")
-                        }
-                    }
-                }
-                
-                try await syncEngine.start()
-                self.syncEngine = syncEngine
             }
+            
+            syncEngine.didDeleteModels = { [weak self] identifiers in
+                guard let self else { return }
+                Task {
+                    do {
+                        try await self.deleteItem(identifiers)
+                        await MainActor.run {
+                            self.updateUI()
+                        }
+                    } catch {
+                        self.logger.error("Failed to process remote deletions: \(error.localizedDescription)")
+                    }
+                }
+            }
+            
+            // Setup sync state monitoring
+            if let stateStream = stateStream {
+                Task {
+                    for await state in stateStream {
+                        await MainActor.run {
+                            switch state {
+                            case .loading:
+                                logger.debug("🔄 Sync in progress...")
+                            case .idle:
+                                logger.debug("🔄 Sync completed!")
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Try to start sync
+            do {
+                try await syncEngine.performSync()
+                self.syncEngine = syncEngine
+            } catch SyncEngine.EngineError.noNetworkConnection {
+                logger.error("Cannot start sync - no network connection")
+            } catch SyncEngine.EngineError.noICloudAccount {
+                logger.error("Cannot start sync - no iCloud account")
+            } catch {
+                logger.error("Sync setup failed: \(error.localizedDescription)")
+            }
+            
         } catch {
             logger.error("CloudKit setup failed: \(error.localizedDescription)")
         }
@@ -230,15 +256,20 @@ final class CoreDataManager {
                         contents: contentItems
                     )
                     
-                    // Upload to CloudKit
-                    let uploads = ([item as any Syncable] + contentItems as [any Syncable])
-                    
+                    // After saving to Core Data, try to sync
                     Task {
-                        try await syncEngine?.uploadAnys(contentItems)
-                        // Then upload the main item with references to contents
-                        try await syncEngine?.upload(item)
+                        do {
+                            // The sync engine will automatically handle network/account status
+                            try await syncEngine?.uploadAnys(contentItems)
+                            try await syncEngine?.upload(item)
+                        } catch SyncEngine.EngineError.noNetworkConnection {
+                            logger.debug("Item saved locally, will sync when network is available")
+                        } catch SyncEngine.EngineError.noICloudAccount {
+                            logger.debug("Item saved locally, will sync when iCloud account is available")
+                        } catch {
+                            logger.error("Failed to sync: \(error.localizedDescription)")
+                        }
                     }
-                    
                     
                 } catch {
                     continuation.resume(throwing: ClipboardError.saveFailed(error))
@@ -688,9 +719,7 @@ final class CoreDataManager {
     }
     
     func processSubscriptionNotification(with userInfo: [AnyHashable : Any]) {
-        Task {
-            await syncEngine?.processSubscriptionNotification(with: userInfo)
-        }
+        syncEngine?.processSubscriptionNotification(with: userInfo)
     }
     
     @objc private func storeRemoteChange(_ notification: Notification) {
@@ -698,11 +727,10 @@ final class CoreDataManager {
             container.viewContext.refreshAllObjects()
         }
     }
-    
-    @objc private func cloudKitAccountChanged(_ notification: Notification) {
-        Task { @MainActor in
-            await setupSync()
-        }
+
+    deinit {
+        syncEngine?.stopMonitoring()
+        // Remove any observers you've added
     }
 }
 

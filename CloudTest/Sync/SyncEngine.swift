@@ -15,11 +15,22 @@ final class SyncEngine {
     enum EngineError: Error {
         case setupFailed
         case failedFetchingRemoteChanges
+        case noNetworkConnection
+        case noICloudAccount
     }
     private var typeRegistry: [String: any Syncable.Type] = [:]
     private var initializerRegistry: [String: (CKRecord) throws -> any Syncable] = [:]
 
+    @MainActor
     private let continuation: AsyncStream<SyncState>.Continuation
+    private var lastState: SyncState = .idle {
+        didSet {
+            guard lastState != oldValue else { return }
+            continuation.yield(lastState)
+        }
+    }
+    private var isFetching = false
+    
     let syncState: AsyncStream<SyncState>
     
     let log = OSLog(subsystem: Constants.subsystemName, category: String(describing: SyncEngine.self))
@@ -28,6 +39,8 @@ final class SyncEngine {
     private let defaults: UserDefaults
     private let tokenManager: TokenManager
     private let accountMiddleware: AccountStatusMiddleware
+    private let networkMiddleware: NetworkStatusMiddleware
+    var networkStatus: AsyncStream<Bool> { networkMiddleware.networkStatus }
 
     private(set) var subscriptionManager: SubscriptionManager!
     private(set) var zoneManager: ZoneManager!
@@ -64,10 +77,12 @@ final class SyncEngine {
         config = syncConfig
         container = CKContainer(identifier: config.containerIdentifier)
         accountMiddleware = AccountStatusMiddleware(container: container)
+        networkMiddleware = NetworkStatusMiddleware()
 
         (syncState, continuation) = AsyncStream<SyncState>.makeStream()
         
         setupAccountStatusMonitoring()
+        setupNetworkStatusMonitoring()
     }
     
     func requestPermission() async throws -> Bool {
@@ -93,14 +108,40 @@ final class SyncEngine {
         return try initializer(record)
     }
     
-    func start() async throws {
+    func performSync() async throws {
+        guard networkMiddleware.isNetworkAvailable else {
+            os_log("❌ Cannot start sync - no network connection", log: log, type: .error)
+            throw EngineError.noNetworkConnection
+        }
+        
+        guard try await requestPermission() else {
+            os_log("❌ Cannot start sync - no iCloud account", log: log, type: .error)
+            throw EngineError.noICloudAccount
+        }
+        
+        lastState = .loading
+        
+        defer {
+            lastState = .idle
+        }
+        
         guard try await prepareCloudEnvironment() else {
             throw EngineError.setupFailed
         }
+        
         os_log("✅ Cloud environment preparation done", log: self.log, type: .debug)
         
-        await uploadLocalDataNotUploadedYet()
-        try await fetchRemoteChanges()
+        do {
+            await uploadLocalDataNotUploadedYet()
+            try await fetchRemoteChanges()
+        } catch {
+            os_log("❌ Sync failed: %{public}@", log: log, type: .error, error.localizedDescription)
+            throw error
+        }
+    }
+    
+    func stopMonitoring() {
+        networkMiddleware.stopMonitoring()
     }
     
     private func prepareCloudEnvironment() async throws -> Bool {
@@ -130,6 +171,32 @@ final class SyncEngine {
             for await status in accountMiddleware.accountStatus {
                 await MainActor.run {
                     os_log("☁️ iCloud account status: %{public}@", log: log, type: .info, "\(status.description). \(status.detailedDescription)")
+                }
+            }
+        }
+    }
+    
+    private func setupNetworkStatusMonitoring() {
+        networkMiddleware.startMonitoring()
+        
+        Task {
+            for await isNetworkAvailable in networkMiddleware.networkStatus {
+                if isNetworkAvailable {
+                    os_log("🌐 Network became available - attempting sync", log: log, type: .debug)
+                    // Only sync if we have an active iCloud account
+                    if accountMiddleware.lastKnownStatus == .available {
+                        do {
+                            try await fetchRemoteChanges()
+                            await uploadLocalDataNotUploadedYet()
+                        } catch {
+                            os_log("❌ Failed to sync when network became available: %{public}@", 
+                                  log: log, 
+                                  type: .error, 
+                                  error.localizedDescription)
+                        }
+                    }
+                } else {
+                    os_log("🌐 Network became unavailable", log: log, type: .debug)
                 }
             }
         }
@@ -244,15 +311,21 @@ final class SyncEngine {
     // MARK: - Remote change tracking
     
     func fetchRemoteChanges(retryCount: Int = Constants.retryCount) async throws {
+        defer {
+            lastState = .idle
+            isFetching = false
+        }
+        
+        guard isFetching == false else { return }
+        isFetching = true
+
         guard retryCount > 0 else {
             throw EngineError.failedFetchingRemoteChanges
         }
         
         os_log("%{public}@", log: log, type: .debug, #function)
-
-        Task { @MainActor in
-            self.continuation.yield(.loading)
-        }
+        
+        lastState = .loading
         
         var awaitingChanges = true
         var changedRecords: [CKRecord] = []
@@ -293,10 +366,12 @@ final class SyncEngine {
                 if await error.retryCloudKitOperationIfPossible(log) {
                     try await fetchRemoteChanges(retryCount: retryCount - 1)
                 } else {
+                    lastState = .idle
                     throw error
                 }
             }
         }
+        
         let groupedChangedRecords = Dictionary(grouping: changedRecords, by: \.recordType)
         await commitServerChangesToDatabase(with: groupedChangedRecords, deletedRecordIDs: deletedRecordIDs)
     }
@@ -349,7 +424,6 @@ final class SyncEngine {
             if !deletedIdentifiers.isEmpty {
                 self.didDeleteModels(deletedIdentifiers)
             }
-            continuation.yield(.idle)
         }
     }
     
@@ -362,10 +436,10 @@ final class SyncEngine {
     
     func uploadAnys(_ models: [any Syncable]) async throws {
         os_log("%{public}@", log: log, type: .debug, #function)
-        continuation.yield(.loading)
+        lastState = .loading
         buffer.append(contentsOf: models)
         try await uploadRecords(models.map { $0.record })
-        continuation.yield(.idle)
+        lastState = .idle
     }
     
     func deleteAny<T: Syncable>(_ model: T) async throws {
