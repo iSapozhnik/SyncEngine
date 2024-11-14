@@ -27,9 +27,8 @@ final class AccountStatusMiddleware: AccountStatusMiddlewareProtocol {
 
         Task {
             await checkAccountStatus()
+            await setupObservers()
         }
-
-        setupObservers()
     }
 
     deinit {
@@ -45,25 +44,17 @@ final class AccountStatusMiddleware: AccountStatusMiddlewareProtocol {
 
     // MARK: - Private Methods
     
-    private func setupObservers() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleAccountChange),
-            name: .CKAccountChanged,
-            object: container 
-        )
+    private func setupObservers() async {
         os_log("☁️ Account status observers setup", log: log, type: .debug)
+        let accountChangedStream = NotificationCenter.default.notifications(named: .CKAccountChanged, object: container).map { _ in ()}
+        for await _ in accountChangedStream {
+            await checkAccountStatus()
+        }
     }
 
     private func removeObservers() {
         NotificationCenter.default.removeObserver(self)
         os_log("☁️ Account status observers removed", log: log, type: .debug)
-    }
-
-    @objc private func handleAccountChange() {
-        Task {
-            await checkAccountStatus()
-        }
     }
     
     private func checkAccountStatus(retries: Int = 3) async {
