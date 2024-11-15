@@ -42,8 +42,8 @@ final class SyncEngine {
     private let networkMiddleware: NetworkStatusMiddleware
     var networkStatus: AsyncStream<Bool> { networkMiddleware.networkStatus }
 
-    private(set) var subscriptionManager: SubscriptionManager!
-    private(set) var zoneManager: ZoneManager!
+    let subscriptionManager: SubscriptionManager
+    private let zoneManager: ZoneManager
     private var statusTask: Task<Void, Never>?
 
     private let container: CKContainer
@@ -78,6 +78,18 @@ final class SyncEngine {
         container = CKContainer(identifier: config.containerIdentifier)
         accountMiddleware = AccountStatusMiddleware(container: container)
         networkMiddleware = NetworkStatusMiddleware()
+        
+        subscriptionManager = SubscriptionManager(
+            syncConfig: config,
+            userDefaults: defaults,
+            database: container.privateCloudDatabase
+        )
+        
+        zoneManager = ZoneManager(
+            syncConfig: config,
+            userDefaults: defaults,
+            database: container.privateCloudDatabase
+        )
 
         (syncState, continuation) = AsyncStream<SyncState>.makeStream()
         
@@ -145,18 +157,6 @@ final class SyncEngine {
     }
     
     private func prepareCloudEnvironment() async throws -> Bool {
-        subscriptionManager = SubscriptionManager(
-            syncConfig: config,
-            userDefaults: defaults,
-            database: privateDatabase
-        )
-        
-        zoneManager = ZoneManager(
-            syncConfig: config,
-            userDefaults: defaults,
-            database: privateDatabase
-        )
-        
         async let zoneCreation = zoneManager.createCustomZoneIfNeeded()
         let recordTypes = Array(Set(typeRegistry.keys))
         async let subscriptionCreation = subscriptionManager.createPrivateSubscriptionsIfNeeded(recordTypes: recordTypes)

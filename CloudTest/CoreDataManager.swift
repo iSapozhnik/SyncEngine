@@ -86,6 +86,7 @@ final class CoreDataManager {
                 defaults: UserDefaults.standard,
                 initialModels: storedItems
             )
+            self.syncEngine = syncEngine
             
             // Store reference to sync state stream
             stateStream = syncEngine.syncState
@@ -175,7 +176,6 @@ final class CoreDataManager {
             // Try to start sync
             do {
                 try await syncEngine.performSync()
-                self.syncEngine = syncEngine
             } catch SyncEngine.EngineError.noNetworkConnection {
                 logger.error("Cannot start sync - no network connection")
             } catch SyncEngine.EngineError.noICloudAccount {
@@ -685,7 +685,7 @@ final class CoreDataManager {
     }
     
     func eraseLocalStorage() async throws {
-        return try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { continuation in
             let context = newBackgroundContext()
             
             context.performAndWait {
@@ -716,6 +716,7 @@ final class CoreDataManager {
                 }
             }
         }
+        try await  syncEngine?.performSync()
     }
     
     func processSubscriptionNotification(with userInfo: [AnyHashable : Any]) {
