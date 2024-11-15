@@ -20,7 +20,7 @@ final class NetworkStatusMiddleware: NetworkStatusMiddlewareProtocol {
     // MARK: - Public properties
     
     let networkStatus: AsyncStream<Bool>
-    private(set) var isNetworkAvailable: Bool = false
+    private(set) var isNetworkAvailable: Bool
     
     // MARK: - Private properties
     
@@ -33,6 +33,8 @@ final class NetworkStatusMiddleware: NetworkStatusMiddlewareProtocol {
     // MARK: - Lifecycle
     
     init() {
+        isNetworkAvailable = NWPathMonitor().currentPath.status == .satisfied
+
         (networkStatus, continuation) = AsyncStream<Bool>.makeStream()
     }
     
