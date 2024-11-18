@@ -8,7 +8,7 @@ extension SyncEngine {
     public func delete(_ models: [any Syncable]) async throws -> [CKRecord.ID] {
         defer { lastState = .idle }
 
-        let recordIDs = models.map { $0.record.recordID }
+        let recordIDs = models.map { $0.recordID(withZoneID: config.customZoneID) }
         guard try await syncConditionsMet() else {
             pendingOperationsManager.addPendingDeletions(recordIDs: recordIDs.map(\.recordName))
             return []

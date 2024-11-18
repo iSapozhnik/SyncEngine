@@ -8,7 +8,7 @@ public protocol SyncEngineConfig {
 }
 
 extension SyncEngineConfig {
-    var customZoneID: CKRecordZone.ID {
+    public var customZoneID: CKRecordZone.ID {
         CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName ?? CKCurrentUserDefaultName)
     }
 }

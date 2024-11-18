@@ -7,8 +7,7 @@ public protocol Syncable: Identifiable {
     /// The CloudKit record type for this model
     static var recordType: String { get }
     /// Convert the model to a CloudKit record
-    var record: CKRecord { get }
-    func recordLegacy() -> CKRecord
+    func record(withZoneID zoneID: CKRecordZone.ID) -> CKRecord
     
     /// Create an instance from a CloudKit record
     init(record: CKRecord, configure: ((inout Self) -> Void)?) throws
@@ -25,7 +24,11 @@ extension Syncable {
 
 // Default implementation for common CloudKit record conversion
 extension Syncable {
-    static var recordType: String {
+    public static var recordType: String {
         String(describing: Self.self)
+    }
+    
+    public func recordID(withZoneID zoneID: CKRecordZone.ID) -> CKRecord.ID {
+        CKRecord.ID(recordName: id, zoneID: zoneID)
     }
 }

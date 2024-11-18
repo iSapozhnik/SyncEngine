@@ -17,7 +17,7 @@ extension SyncEngine {
         
         os_log("%{public}@", log: log, type: .debug, #function)
         buffer.append(contentsOf: models)
-        try await uploadRecords(models.map { $0.record })
+        try await uploadRecords(models.map { $0.record(withZoneID: config.customZoneID) })
     }
     
     func uploadLocalDataNotUploadedYet(retryCount: Int = Constants.retryCount) async throws {
@@ -36,7 +36,7 @@ extension SyncEngine {
         
         os_log("Found %d local model(s) which haven't been uploaded yet.", log: self.log, type: .debug, models.count)
         
-        let records = models.map { $0.record }
+        let records = models.map { $0.record(withZoneID: config.customZoneID) }
         
         do {
             lastState = .loading
