@@ -8,7 +8,7 @@ public enum SyncState {
     case loading
 }
 
-final class SyncEngine {
+public final class SyncEngine {
     enum Constants {
         static let retryCount: Int = 3
         static let subsystemName = "com.isapozhnik.SyncEngine"
@@ -64,12 +64,13 @@ final class SyncEngine {
     var buffer: [any Syncable]
 
     /// Called after models are updated with CloudKit data.
-    var didUpdateModels: ([String: [any Syncable]]) -> Void = { _ in }
+    public var didUpdateModels: ([String: [any Syncable]]) -> Void = { _ in }
 
     /// Called when models are deleted remotely.
-    var didDeleteModels: ([String]) -> Void = { _ in }
+    public var didDeleteModels: ([String]) -> Void = { _ in }
 
-    var progressHandler: ((Double) -> Void)? = nil
+    /// Progress handler for sync operations
+    public var progressHandler: ((Double) -> Void)? = nil
 
     let pendingOperationsManager = PendingOperationsManager()
 
@@ -78,7 +79,7 @@ final class SyncEngine {
     private var applicationStateTask: Task<Void, Never>?
     private var lastEnvironmentUpdate: Date?
 
-    init(
+    public init(
         syncConfig: SyncEngineConfig,
         defaults: UserDefaults,
         initialModels: [any Syncable]
@@ -119,7 +120,7 @@ final class SyncEngine {
 
     // MARK: - Setup boilerplate
     
-    func performSync() async throws {
+    public func performSync() async throws {
         
         guard try await syncConditionsMet() else { return }
         
@@ -143,7 +144,7 @@ final class SyncEngine {
         }
     }
     
-    func stopMonitoring() {
+    public func stopMonitoring() {
         networkMiddleware.stopMonitoring()
         monitoringTask?.cancel()
     }

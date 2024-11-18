@@ -1,6 +1,7 @@
 import CloudKit
 
 // MARK: - CKRecord Extensions
+
 extension CKRecord {
     var encodedSystemFields: Data {
         let coder = NSKeyedArchiver(requiringSecureCoding: true)

@@ -10,7 +10,7 @@ import os.log
 import CloudKit
 
 extension SyncEngine {
-    func upload(_ models: [any Syncable]) async throws {
+    public func upload(_ models: [any Syncable]) async throws {
         defer { lastState = .idle }
         guard try await syncConditionsMet() else { return }
         lastState = .loading

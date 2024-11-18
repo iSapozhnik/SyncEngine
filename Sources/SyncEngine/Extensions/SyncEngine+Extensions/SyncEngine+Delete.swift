@@ -5,7 +5,7 @@ import os.log
 extension SyncEngine {
     
     @discardableResult
-    func delete(_ models: [any Syncable]) async throws -> [CKRecord.ID] {
+    public func delete(_ models: [any Syncable]) async throws -> [CKRecord.ID] {
         defer { lastState = .idle }
 
         let recordIDs = models.map { $0.record.recordID }
@@ -26,7 +26,7 @@ extension SyncEngine {
     }
     
     @discardableResult
-    func delete(_ recordIDs: [String]) async throws -> [CKRecord.ID] {
+    public func delete(_ recordIDs: [String]) async throws -> [CKRecord.ID] {
         defer { lastState = .idle }
         
         guard try await syncConditionsMet() else {

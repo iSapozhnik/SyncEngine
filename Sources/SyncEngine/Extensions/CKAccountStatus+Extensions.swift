@@ -2,7 +2,7 @@ import Foundation
 import CloudKit
 
 extension CKAccountStatus {
-    var description: String {
+    public var description: String {
         switch self {
         case .available:
             return "Available"
@@ -19,7 +19,7 @@ extension CKAccountStatus {
         }
     }
     
-    var detailedDescription: String {
+    public var detailedDescription: String {
         switch self {
         case .available:
             return "iCloud account is available and ready to use"

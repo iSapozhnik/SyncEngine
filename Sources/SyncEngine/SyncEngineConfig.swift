@@ -1,7 +1,7 @@
 import Foundation
 import CloudKit
 
-protocol SyncEngineConfig {
+public protocol SyncEngineConfig {
     var containerIdentifier: String { get }
     var zoneName: String { get }
     var ownerName: String? { get }

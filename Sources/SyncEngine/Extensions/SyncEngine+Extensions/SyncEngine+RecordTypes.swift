@@ -2,7 +2,7 @@ import Foundation
 import CloudKit
 
 extension SyncEngine {
-    func register<T: Syncable>(_ type: T.Type) {
+    public func register<T: Syncable>(_ type: T.Type) {
         typeRegistry[T.recordType] = type
         initializerRegistry[T.recordType] = { record in
             try T(record: record, configure: nil)

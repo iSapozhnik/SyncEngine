@@ -4,7 +4,8 @@ import CloudKit
 
 extension SyncEngine {
     
-    @discardableResult func processSubscriptionNotification(with userInfo: [AnyHashable : Any]) -> Bool {
+    @discardableResult
+    public func processSubscriptionNotification(with userInfo: [AnyHashable : Any]) -> Bool {
         os_log("%{public}@", log: log, type: .debug, #function)
 
         guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) else {
